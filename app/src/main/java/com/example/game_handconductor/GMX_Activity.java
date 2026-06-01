@@ -51,6 +51,27 @@ import java.util.concurrent.Executors;
 
 public class GMX_Activity extends AppCompatActivity {
 
+    private class ScoreManager {
+        int currentCombo = 0, maxCombo = 0, hits = 0,miss=0;
+        //public int totalNote=0;
+        final int totalNotes = 15;
+
+        void addHit() {
+            hits++;
+            currentCombo++;
+            if (currentCombo > maxCombo) maxCombo = currentCombo;
+            updateComboUI();
+        }
+
+        void resetCombo() {
+            miss++;
+            currentCombo = 0;
+            updateComboUI();
+        }
+    }
+    private ScoreManager scoreManager = new ScoreManager();
+    private Handler mainHandler = new Handler(Looper.getMainLooper());
+    private TextView tvCombo;
     // ================= 游戏 UI 与状态 =================
     private ProgressBar pbSongProgress;
     private ValueAnimator progressAnimator;
@@ -146,6 +167,11 @@ public class GMX_Activity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_gmx);
 
+        tvCombo = findViewById(R.id.tv_max_combo); // 新增绑定
+        pbSongProgress = findViewById(R.id.pb_song_progress);
+        noteContainer = findViewById(R.id.note_container);
+        viewFinder = findViewById(R.id.viewFinder);
+
         Intent intent = getIntent();
         songName = intent.getStringExtra("SONG_NAME");
         songCoverId = intent.getIntExtra("SONG_COVER_ID", R.mipmap.ic_launcher);
@@ -174,6 +200,11 @@ public class GMX_Activity extends AppCompatActivity {
         initNoteTimeline();
     }
 
+    private void updateComboUI() {
+        mainHandler.post(() -> {
+            if (tvCombo != null) tvCombo.setText("连击数: " + scoreManager.currentCombo);
+        });
+    }
     private void checkCameraPermissionAndInit() {
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
             ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.CAMERA}, CAMERA_REQ_CODE);
@@ -293,15 +324,15 @@ public class GMX_Activity extends AppCompatActivity {
         long t = 1000;
 
         noteTimeline.add(new NoteEvent(t, () -> noteContainer.addView(new BlueNoteView(this)))); t += 2000;
-        noteTimeline.add(new NoteEvent(t, () -> noteContainer.addView(new PurpleNoteView(this, true, null)))); t += 3000; // 留出5s寿命空间
+        noteTimeline.add(new NoteEvent(t, () -> noteContainer.addView(new PurpleNoteView(this, true, null)))); t += 6000; // 留出5s寿命空间
 
         noteTimeline.add(new NoteEvent(t, () -> {
             PurpleLinkView link = new PurpleLinkView(this, true);
             noteContainer.addView(link);
             noteContainer.addView(new PurpleNoteView(this, true, link));
-        })); t += 3000;
+        })); t += 6000;
 
-        noteTimeline.add(new NoteEvent(t, () -> noteContainer.addView(new PurpleNoteView(this, false, null)))); t += 3000;
+        noteTimeline.add(new NoteEvent(t, () -> noteContainer.addView(new PurpleNoteView(this, false, null)))); t += 6000;
         noteTimeline.add(new NoteEvent(t, () -> noteContainer.addView(new OrangeNoteView(this, true)))); t += 2500;
         noteTimeline.add(new NoteEvent(t, () -> noteContainer.addView(new OrangeNoteView(this, false)))); t += 2500;
 
@@ -338,13 +369,16 @@ public class GMX_Activity extends AppCompatActivity {
     }
 
     private void goToFXActivity() {
-        Intent fxIntent = new Intent(GMX_Activity.this, FX_Activity.class);
-        fxIntent.putExtra("SONG_NAME", songName);
-        fxIntent.putExtra("SONG_COVER_ID", songCoverId);
-        fxIntent.putExtra("RANK", "S");
-        fxIntent.putExtra("COMPLETION", "100%");
-        fxIntent.putExtra("MAX_COMBO", currentMaxCombo + 12);
-        startActivity(fxIntent);
+        float score = ((float) scoreManager.hits*0.8f+scoreManager.maxCombo*0.2f) / (float) scoreManager.totalNotes;
+        String rank = (score >= 1.0f) ? "SSS" : (score >= 0.9f) ? "S" : (score >= 0.8f) ? "A" : (score >= 0.6f) ? "C" : "D";
+
+        Intent intent = new Intent(this, FX_Activity.class);
+        intent.putExtra("RANK", rank);
+        intent.putExtra("HITS", scoreManager.hits);
+        intent.putExtra("MAX_COMBO", scoreManager.maxCombo);
+        intent.putExtra("COMPLETION", (int)((float)scoreManager.hits / scoreManager.totalNotes * 100) + "%");
+        intent.putExtra("MISSES",scoreManager.miss);
+        startActivity(intent);
         finish();
     }
 
@@ -424,6 +458,7 @@ public class GMX_Activity extends AppCompatActivity {
                     sweepAngle = (float) a.getAnimatedValue();
                     if (flagPushing) {
                         isHit = true;
+                        scoreManager.addHit(); // 【击打成功】
                         if (getParent() != null) {
                             ((FrameLayout) getParent()).addView(new HitEffectView(getContext(), Color.parseColor("#00BFFF"), getWidth() / 2f, getHeight() / 2f));
                             ((ViewGroup) getParent()).removeView(BlueNoteView.this);
@@ -434,6 +469,7 @@ public class GMX_Activity extends AppCompatActivity {
                 });
                 anim.addListener(new AnimatorListenerAdapter() {
                     @Override public void onAnimationEnd(Animator animation) {
+                        if (!isHit) scoreManager.resetCombo(); // 【漏键中断】
                         if (!isHit && getParent() != null) ((ViewGroup) getParent()).removeView(BlueNoteView.this);
                     }
                 });
@@ -516,6 +552,7 @@ public class GMX_Activity extends AppCompatActivity {
                         if (getParent() != null) {
                             if (!isMissed && hitStartTime != -1) {
                                 isSuccessCompleted = true;
+                                scoreManager.addHit(); // 【击打成功】
                                 if (linkView != null) linkView.activate();
                             }
                             ((ViewGroup) getParent()).removeView(PurpleNoteView.this);
@@ -529,6 +566,7 @@ public class GMX_Activity extends AppCompatActivity {
         private void triggerMiss() {
             if (isMissed) return;
             isMissed = true;
+            scoreManager.resetCombo(); // 【漏键中断】
             setAlpha(0.3f);
             invalidate();
             if (linkView != null) linkView.triggerMiss();
@@ -562,6 +600,7 @@ public class GMX_Activity extends AppCompatActivity {
         public void triggerMiss() {
             if (isHit) return;
             isMissed = true;
+            scoreManager.resetCombo(); // 【漏键中断】
             setAlpha(0.3f);
             invalidate();
             // 在惩罚结束后自然消失
@@ -581,6 +620,7 @@ public class GMX_Activity extends AppCompatActivity {
                 boolean isZoneChanged = isTopToBottom ? flagPointingBottom : flagPointingTop;
                 if (isZoneChanged) {
                     isHit = true;
+                    scoreManager.addHit(); // 【击打成功】
                     if (getParent() != null) {
                         float cx = getWidth() / 2f, cy = getHeight() * 0.5f;
                         ((FrameLayout) getParent()).addView(new HitEffectView(getContext(), Color.parseColor("#4B0082"), cx, cy));
@@ -622,10 +662,10 @@ public class GMX_Activity extends AppCompatActivity {
 
         private long lastTime = -1;
         private long dropTimer = 0;
-        private boolean hasStartedTouching = false;
-        private boolean wasTouchingEdge = false;
+        private boolean hasStartedTouching = false; // 是否触发过开始判定
         private boolean isMissed = false;
-        private boolean isSuccessCompleted = false;
+        private boolean isSuccessStarted = false; // 开始判定锁
+        private boolean isSuccessCompleted = false; // 结束判定锁
         private long lastEffectTime = 0;
 
         public OrangeNoteView(android.content.Context context, boolean isLeft) {
@@ -654,35 +694,44 @@ public class GMX_Activity extends AppCompatActivity {
                     boolean isCorrectRaising = isLeft ? flagRaisingLeft : flagRaisingRight;
 
                     if (isTouchingEdge) {
-                        hasStartedTouching = true;
-
-                        // 交互断开或一直未按
-                        if (!isCorrectRaising) {
-                            dropTimer += dt;
-                            if (dropTimer > 300) { // 300ms 容错，超过立刻变成半透明(Miss)
-                                triggerMiss();
+                        // 1. 开始判定逻辑
+                        if (!isSuccessStarted) {
+                            if (isCorrectRaising) {
+                                isSuccessStarted = true;
+                                scoreManager.addHit(); // 【得分点1：开始击打】
+                            } else {
+                                // 在接触边缘但未做手势时，给一定容错时间后Miss
+                                dropTimer += dt;
+                                if (dropTimer > 300) triggerMiss();
                             }
                         } else {
-                            dropTimer = 0; // 恢复交互，重置容错
-                            if (currentTime - lastEffectTime >= 100) {
-                                lastEffectTime = currentTime;
-                                if (getParent() != null) {
-                                    float cy = getHeight() * 0.5f;
-                                    float effectX = isLeft ? 0f : getWidth();
-                                    ((FrameLayout) getParent()).addView(new HitEffectView(getContext(), Color.parseColor("#FFA500"), effectX, cy));
+                            // 2. 持续击打逻辑
+                            if (!isCorrectRaising) {
+                                dropTimer += dt;
+                                if (dropTimer > 300) triggerMiss(); // 【中断点：中途断开】
+                            } else {
+                                dropTimer = 0;
+                                if (currentTime - lastEffectTime >= 100) {
+                                    lastEffectTime = currentTime;
+                                    if (getParent() != null) {
+                                        float cy = getHeight() * 0.5f;
+                                        float effectX = isLeft ? 0f : getWidth();
+                                        ((FrameLayout) getParent()).addView(new HitEffectView(getContext(), Color.parseColor("#FFA500"), effectX, cy));
+                                    }
                                 }
                             }
                         }
-                    } else if (hasStartedTouching) {
-                        // 刚才在碰边缘，现在离开了屏幕，且中途没有被 Miss，视为成功击打
-                        triggerSuccess();
+                    } else if (isSuccessStarted) {
+                        // 3. 离开边缘，判定完成
+                        triggerSuccessEnd(); // 【得分点2：完成击打】
                     }
-
-                    wasTouchingEdge = isTouchingEdge;
                     invalidate();
                 });
                 anim.addListener(new AnimatorListenerAdapter() {
                     @Override public void onAnimationEnd(Animator animation) {
+                        if (!isMissed && !isSuccessCompleted) {
+                            scoreManager.resetCombo(); // 【中断点：完全没碰】
+                        }
                         if (getParent() != null) ((ViewGroup) getParent()).removeView(OrangeNoteView.this);
                     }
                 });
@@ -691,13 +740,17 @@ public class GMX_Activity extends AppCompatActivity {
         }
 
         private void triggerMiss() {
+            if (isMissed) return;
             isMissed = true;
+            scoreManager.resetCombo(); // 【中断点：连击重置】
             setAlpha(0.3f);
-            invalidate(); // 继续维持在屏幕上，保持半透明移出屏幕
+            invalidate();
         }
 
-        private void triggerSuccess() {
+        private void triggerSuccessEnd() {
+            if (isSuccessCompleted) return;
             isSuccessCompleted = true;
+            scoreManager.addHit(); // 【得分点2：结束击打】
             if (getParent() != null) {
                 float effectX = isLeft ? 0f : getWidth();
                 ((FrameLayout) getParent()).addView(new HitEffectView(getContext(), Color.parseColor("#FFA500"), effectX, getHeight() * 0.5f));
@@ -740,6 +793,7 @@ public class GMX_Activity extends AppCompatActivity {
 
                     if (inHitZone && isCorrectRaising) {
                         isHit = true;
+                        scoreManager.addHit();
                         if (getParent() != null) {
                             float cx = isLeft ? getWidth() * 0.25f : getWidth() * 0.75f;
                             ((FrameLayout) getParent()).addView(new HitEffectView(getContext(), Color.YELLOW, cx, getHeight()));
@@ -751,6 +805,9 @@ public class GMX_Activity extends AppCompatActivity {
                 });
                 anim.addListener(new AnimatorListenerAdapter() {
                     @Override public void onAnimationEnd(Animator animation) {
+                        if (!isHit) {
+                            scoreManager.resetCombo(); // 【重要】在此处添加漏键中断
+                        }
                         if (!isHit && getParent() != null) ((ViewGroup) getParent()).removeView(YellowNoteView.this);
                     }
                 });
