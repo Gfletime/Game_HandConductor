@@ -1,0 +1,91 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="horizontal"
+    android:padding="24dp"
+    android:background="#FFFFFF">
+
+    <ImageView
+        android:id="@+id/iv_fx_cover"
+        android:layout_width="0dp"
+        android:layout_height="match_parent"
+        android:layout_weight="1"
+        android:layout_marginEnd="32dp"
+        android:scaleType="centerCrop"
+        android:background="#E0E0E0" />
+
+    <RelativeLayout
+        android:layout_width="0dp"
+        android:layout_height="match_parent"
+        android:layout_weight="1">
+
+        <TextView
+            android:id="@+id/tv_fx_rank"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_alignParentTop="true"
+            android:layout_alignParentEnd="true"
+            android:text="S"
+            android:textSize="90sp"
+            android:textStyle="bold"
+            android:textColor="#000000"/>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_below="@id/tv_fx_rank"
+            android:layout_marginTop="8dp"
+            android:orientation="vertical">
+
+            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginBottom="16dp" android:orientation="horizontal">
+                <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="完成百分比" android:textSize="20sp" android:textColor="#555555"/>
+                <TextView android:id="@+id/tv_fx_completion" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="0%" android:textSize="20sp" android:textColor="#000000"/>
+            </LinearLayout>
+            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginBottom="16dp" android:orientation="horizontal">
+                <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="击中数" android:textSize="20sp" android:textColor="#555555"/>
+                <TextView android:id="@+id/tv_fx_hits" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="0" android:textSize="20sp" android:textColor="#000000"/>
+            </LinearLayout>
+            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginBottom="16dp" android:orientation="horizontal">
+                <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="最大连击数" android:textSize="20sp" android:textColor="#555555"/>
+                <TextView android:id="@+id/tv_fx_combo" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="0" android:textSize="20sp" android:textColor="#000000"/>
+            </LinearLayout>
+            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginBottom="16dp" android:orientation="horizontal">
+                <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="失误数" android:textSize="20sp" android:textColor="#555555"/>
+                <TextView android:id="@+id/tv_fx_misses" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="0" android:textSize="20sp" android:textColor="#000000"/>
+            </LinearLayout>
+
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_alignParentBottom="true"
+            android:orientation="horizontal">
+
+            <Button
+                android:id="@+id/btn_fx_to_g0"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:layout_marginEnd="16dp"
+                android:text="返回选歌 (G-0)"
+                android:backgroundTint="#424242"
+                android:textColor="#FFFFFF"
+                android:padding="16dp"
+                android:textSize="18sp"/>
+
+            <Button
+                android:id="@+id/btn_fx_replay"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="重新开始"
+                android:backgroundTint="#424242"
+                android:textColor="#FFFFFF"
+                android:padding="16dp"
+                android:textSize="18sp"/>
+        </LinearLayout>
+
+    </RelativeLayout>
+</LinearLayout>

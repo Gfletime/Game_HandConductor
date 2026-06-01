@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.constraintlayout.widget.ConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#000000">
+
+    <ProgressBar
+        android:id="@+id/pb_song_progress"
+        style="?android:attr/progressBarStyleHorizontal"
+        android:layout_width="match_parent"
+        android:layout_height="12dp"
+        android:max="100"
+        android:progress="0"
+        android:progressBackgroundTint="#555555"
+        android:progressTint="#D3D3D3"
+        app:layout_constraintTop_toTopOf="parent" />
+
+    <Button
+        android:id="@+id/btn_return_g0"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="16dp"
+        android:layout_marginTop="16dp"
+        android:backgroundTint="#808080"
+        android:text="退出"
+        android:textColor="#FFFFFF"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@id/pb_song_progress" />
+
+    <Button
+        android:id="@+id/btn_settings_s1"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="16dp"
+        android:layout_marginTop="16dp"
+        android:backgroundTint="#808080"
+        android:text="设置"
+        android:textColor="#FFFFFF"
+        app:layout_constraintStart_toEndOf="@id/btn_return_g0"
+        app:layout_constraintTop_toBottomOf="@id/pb_song_progress" />
+
+    <TextView
+        android:id="@+id/tv_max_combo"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="24dp"
+        android:layout_marginEnd="16dp"
+        android:text="最大连击数 21"
+        android:textColor="#FFFFFF"
+        android:textSize="20sp"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintTop_toBottomOf="@id/pb_song_progress" />
+
+</androidx.constraintlayout.widget.ConstraintLayout>
