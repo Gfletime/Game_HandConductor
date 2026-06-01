@@ -6,59 +6,141 @@ import android.animation.AnimatorListenerAdapter;
 import android.animation.ValueAnimator;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
 import android.graphics.Path;
 import android.graphics.RectF;
-import android.graphics.SurfaceTexture;
-import android.hardware.Camera;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
-import android.view.TextureView;
+import android.util.Log;
+import android.util.Size;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.Button;
 import android.widget.FrameLayout;
 import android.widget.ProgressBar;
 import android.widget.TextView;
+
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.camera.core.CameraSelector;
+import androidx.camera.core.ImageAnalysis;
+import androidx.camera.core.Preview;
+import androidx.camera.lifecycle.ProcessCameraProvider;
+import androidx.camera.view.PreviewView;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 
+import com.google.common.util.concurrent.ListenableFuture;
+import com.google.mediapipe.framework.image.BitmapImageBuilder;
+import com.google.mediapipe.framework.image.MPImage;
+import com.google.mediapipe.tasks.components.containers.NormalizedLandmark;
+import com.google.mediapipe.tasks.core.BaseOptions;
+import com.google.mediapipe.tasks.core.Delegate;
+import com.google.mediapipe.tasks.vision.core.RunningMode;
+import com.google.mediapipe.tasks.vision.handlandmarker.HandLandmarker;
+import com.google.mediapipe.tasks.vision.handlandmarker.HandLandmarkerResult;
+
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 public class GMX_Activity extends AppCompatActivity {
 
+    // ================= 游戏 UI 与状态 =================
     private ProgressBar pbSongProgress;
     private ValueAnimator progressAnimator;
     private FrameLayout noteContainer;
-    private TextureView cameraPreview;
-
-    @SuppressWarnings("deprecation")
-    private Camera mCamera;
-
     private String songName;
     private int songCoverId;
     private int currentMaxCombo = 21;
+
+    // ================= 摄像头与识别 =================
+    private HandLandmarker handLandmarker;
+    private ExecutorService cameraExecutor;
+    private PreviewView viewFinder;
     private static final int CAMERA_REQ_CODE = 100;
 
-    // ================= 架构升级：基于时间轴的谱面事件队列 =================
+    // ================= 手势实时交互状态 (全局同步给音符使用) =================
+    public volatile boolean flagPushing = false;
+    public volatile boolean flagPointingTop = false;
+    public volatile boolean flagPointingBottom = false;
+    public volatile boolean flagRaisingLeft = false;
+    public volatile boolean flagRaisingRight = false;
+
+    // ================= 谱面时间轴系统 =================
     class NoteEvent {
         long spawnTimeMs;
         Runnable action;
         boolean isSpawned = false;
-
-        NoteEvent(long time, Runnable action) {
-            this.spawnTimeMs = time;
-            this.action = action;
-        }
+        NoteEvent(long time, Runnable action) { this.spawnTimeMs = time; this.action = action; }
     }
     private List<NoteEvent> noteTimeline = new ArrayList<>();
-    // ==============================================================
+
+    // ================= 手势识别追踪器 (照搬自你的测试代码) =================
+    private static class RaiseTrendTracker {
+        List<Float> tipHistory = new ArrayList<>();
+        boolean isPrepReady = false;
+        boolean isMovingUpContinuous = false;
+        long lastUpdateTime = 0;
+
+        void update(float avgTipY, long now) {
+            if (now - lastUpdateTime > 500) clear();
+            lastUpdateTime = now;
+            tipHistory.add(avgTipY);
+            if (tipHistory.size() > 4) tipHistory.remove(0);
+            isMovingUpContinuous = false;
+            if (tipHistory.size() == 4) {
+                boolean allMovingDown = true;
+                boolean allMovingUp = true;
+                for (int i = 1; i < 4; i++) {
+                    if (tipHistory.get(i) <= tipHistory.get(i - 1)) allMovingDown = false;
+                    if (tipHistory.get(i) >= tipHistory.get(i - 1)) allMovingUp = false;
+                }
+                if (allMovingDown) isPrepReady = true;
+                if (allMovingUp) { isMovingUpContinuous = true; isPrepReady = false; }
+            }
+        }
+        void clear() { tipHistory.clear(); isPrepReady = false; isMovingUpContinuous = false; }
+    }
+
+    private static class MovementTracker {
+        List<Long> times = new ArrayList<>();
+        List<Float> positions = new ArrayList<>();
+        long windowMs = 400;
+
+        void update(long time, float pos) {
+            times.add(time); positions.add(pos);
+            while (times.size() > 0 && time - times.get(0) > windowMs) {
+                times.remove(0); positions.remove(0);
+            }
+        }
+        float getVelocity() {
+            if (times.size() < 2) return 0f;
+            long dtMs = times.get(times.size() - 1) - times.get(0);
+            if (dtMs < 50) return 0f;
+            float dy = positions.get(positions.size() - 1) - positions.get(0);
+            return dy / (dtMs / 1000f);
+        }
+        float getDropDistance() {
+            if (positions.size() < 2) return 0f;
+            float current = positions.get(positions.size() - 1);
+            float minPos = positions.get(0);
+            for (float p : positions) if (p < minPos) minPos = p;
+            return current - minPos;
+        }
+    }
+
+    private final RaiseTrendTracker leftRaiseTrend = new RaiseTrendTracker();
+    private final RaiseTrendTracker rightRaiseTrend = new RaiseTrendTracker();
+    private final MovementTracker leftScreenTracker = new MovementTracker();
+    private final MovementTracker rightScreenTracker = new MovementTracker();
+
+    // ================= Activity 生命周期 =================
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -74,7 +156,7 @@ public class GMX_Activity extends AppCompatActivity {
         Button btnReturn = findViewById(R.id.btn_return_g0);
         Button btnSettings = findViewById(R.id.btn_settings_s1);
         noteContainer = findViewById(R.id.note_container);
-        cameraPreview = findViewById(R.id.camera_preview);
+        viewFinder = findViewById(R.id.viewFinder);
 
         tvMaxCombo.setText("最大连击数 " + currentMaxCombo);
 
@@ -88,15 +170,19 @@ public class GMX_Activity extends AppCompatActivity {
 
         btnSettings.setOnClickListener(v -> startActivity(new Intent(GMX_Activity.this, S1_Activity.class)));
 
+        cameraExecutor = Executors.newSingleThreadExecutor();
         checkCameraPermissionAndInit();
-        initNoteTimeline(); // 初始化谱面，但先不跑
+        initNoteTimeline();
     }
+
+    // ================= 摄像头与 MediaPipe 初始化 =================
 
     private void checkCameraPermissionAndInit() {
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
             ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.CAMERA}, CAMERA_REQ_CODE);
         } else {
-            initCamera();
+            setupMediaPipe();
+            startCamera();
         }
     }
 
@@ -104,60 +190,127 @@ public class GMX_Activity extends AppCompatActivity {
     public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
         if (requestCode == CAMERA_REQ_CODE && grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-            initCamera();
+            setupMediaPipe();
+            startCamera();
         }
     }
 
-    private void initCamera() {
-        cameraPreview.setSurfaceTextureListener(new TextureView.SurfaceTextureListener() {
-            @Override
-            public void onSurfaceTextureAvailable(SurfaceTexture surface, int width, int height) {
-                openFrontCamera(surface);
-            }
-            @Override
-            public void onSurfaceTextureSizeChanged(SurfaceTexture surface, int width, int height) {}
-            @Override
-            public boolean onSurfaceTextureDestroyed(SurfaceTexture surface) {
-                releaseCamera();
-                return true;
-            }
-            @Override
-            public void onSurfaceTextureUpdated(SurfaceTexture surface) {}
-        });
+    private void setupMediaPipe() {
+        BaseOptions baseOptions = BaseOptions.builder()
+                .setModelAssetPath("hand_landmarker.task")
+                .setDelegate(Delegate.GPU)
+                .build();
+
+        HandLandmarker.HandLandmarkerOptions options = HandLandmarker.HandLandmarkerOptions.builder()
+                .setBaseOptions(baseOptions)
+                .setRunningMode(RunningMode.LIVE_STREAM)
+                .setNumHands(2)
+                .setResultListener((result, image) -> processHandResult(result))
+                .setErrorListener(error -> Log.e("MediaPipe", "Error: ", error))
+                .build();
+        handLandmarker = HandLandmarker.createFromOptions(this, options);
     }
 
-    @SuppressWarnings("deprecation")
-    private void openFrontCamera(SurfaceTexture surface) {
-        try {
-            int cameraId = -1;
-            Camera.CameraInfo info = new Camera.CameraInfo();
-            for (int i = 0; i < Camera.getNumberOfCameras(); i++) {
-                Camera.getCameraInfo(i, info);
-                if (info.facing == Camera.CameraInfo.CAMERA_FACING_FRONT) {
-                    cameraId = i;
-                    break;
+    private void startCamera() {
+        ListenableFuture<ProcessCameraProvider> cameraProviderFuture = ProcessCameraProvider.getInstance(this);
+        cameraProviderFuture.addListener(() -> {
+            try {
+                ProcessCameraProvider cameraProvider = cameraProviderFuture.get();
+                Preview preview = new Preview.Builder().build();
+                preview.setSurfaceProvider(viewFinder.getSurfaceProvider());
+
+                ImageAnalysis imageAnalyzer = new ImageAnalysis.Builder()
+                        .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+                        .setTargetResolution(new Size(640, 480))
+                        .build();
+
+                imageAnalyzer.setAnalyzer(cameraExecutor, imageProxy -> {
+                    Bitmap bitmap = imageProxy.toBitmap();
+                    MPImage mpImage = new BitmapImageBuilder(bitmap).build();
+                    handLandmarker.detectAsync(mpImage, imageProxy.getImageInfo().getTimestamp());
+                    imageProxy.close();
+                });
+
+                cameraProvider.unbindAll();
+                cameraProvider.bindToLifecycle(this, CameraSelector.DEFAULT_FRONT_CAMERA, preview, imageAnalyzer);
+            } catch (Exception e) {
+                Log.e("CameraX", "Camera binding failed", e);
+            }
+        }, ContextCompat.getMainExecutor(this));
+    }
+
+    private float getDistance(NormalizedLandmark p1, NormalizedLandmark p2) {
+        float dx = p1.x() - p2.x(); float dy = p1.y() - p2.y(); return (float) Math.sqrt(dx * dx + dy * dy);
+    }
+
+    // ================= 核心手势处理逻辑 =================
+    private void processHandResult(HandLandmarkerResult result) {
+        List<List<NormalizedLandmark>> landmarks = result.landmarks();
+        long now = System.currentTimeMillis();
+
+        boolean currentTopPurple = false;
+        boolean currentBottomPurple = false;
+        boolean currentLeftRaise = false;
+        boolean currentRightRaise = false;
+        boolean currentPush = false;
+        boolean foundLeft = false;
+        boolean foundRight = false;
+
+        if (landmarks != null && !landmarks.isEmpty()) {
+            boolean leftInverted = false, rightInverted = false;
+            for (List<NormalizedLandmark> hand : landmarks) {
+                boolean isLeft = hand.get(0).x() > 0.5f;
+                if (isLeft) foundLeft = true; else foundRight = true;
+                NormalizedLandmark wrist = hand.get(0);
+
+                float avgTipY = (hand.get(8).y() + hand.get(12).y() + hand.get(16).y() + hand.get(20).y()) / 4f;
+                if (isLeft) {
+                    leftRaiseTrend.update(avgTipY, now);
+                    leftScreenTracker.update(now, hand.get(9).y());
+                } else {
+                    rightRaiseTrend.update(avgTipY, now);
+                    rightScreenTracker.update(now, hand.get(9).y());
+                }
+
+                // 伸手指检测
+                boolean indexExtended = getDistance(wrist, hand.get(8)) > getDistance(wrist, hand.get(6));
+                boolean middleCurled = getDistance(wrist, hand.get(12)) < getDistance(wrist, hand.get(10));
+                boolean ringCurled = getDistance(wrist, hand.get(16)) < getDistance(wrist, hand.get(14));
+                boolean pinkyCurled = getDistance(wrist, hand.get(20)) < getDistance(wrist, hand.get(18));
+                if (indexExtended && middleCurled && ringCurled && pinkyCurled) {
+                    if (hand.get(8).y() < 0.5f) currentTopPurple = true; else currentBottomPurple = true;
+                }
+
+                // 下压特征
+                boolean inverted = hand.get(8).y() > hand.get(6).y() && hand.get(12).y() > hand.get(10).y() &&
+                        hand.get(16).y() > hand.get(14).y() && hand.get(20).y() > hand.get(18).y();
+                if (inverted) { if (isLeft) leftInverted = true; else rightInverted = true; }
+            }
+
+            if (foundLeft && ((leftRaiseTrend.isPrepReady && leftScreenTracker.getVelocity() < -0.05f) || leftRaiseTrend.isMovingUpContinuous)) {
+                currentLeftRaise = true;
+            }
+            if (foundRight && ((rightRaiseTrend.isPrepReady && rightScreenTracker.getVelocity() < -0.05f) || rightRaiseTrend.isMovingUpContinuous)) {
+                currentRightRaise = true;
+            }
+            if (foundLeft && foundRight) {
+                float leftDrop = leftScreenTracker.getDropDistance();
+                float rightDrop = rightScreenTracker.getDropDistance();
+                if ((leftDrop > 0.08f && rightDrop > 0.08f) || (leftInverted && rightInverted)) {
+                    currentPush = true;
                 }
             }
-            if (cameraId != -1) {
-                mCamera = Camera.open(cameraId);
-                mCamera.setPreviewTexture(surface);
-                mCamera.setDisplayOrientation(0);
-                mCamera.startPreview();
-            }
-        } catch (Exception e) {
-            e.printStackTrace();
         }
+
+        // 将本帧计算出的状态同步给全局变量，供音符判定使用
+        flagPushing = currentPush;
+        flagPointingTop = currentTopPurple;
+        flagPointingBottom = currentBottomPurple;
+        flagRaisingLeft = currentLeftRaise;
+        flagRaisingRight = currentRightRaise;
     }
 
-    private void releaseCamera() {
-        if (mCamera != null) {
-            mCamera.stopPreview();
-            mCamera.release();
-            mCamera = null;
-        }
-    }
-
-    // ================= 初始化时间轴谱面 =================
+    // ================= 游戏进度与音符生成 =================
     private void initNoteTimeline() {
         noteTimeline.clear();
         long t = 1000;
@@ -187,17 +340,12 @@ public class GMX_Activity extends AppCompatActivity {
     }
 
     private void setupProgressAnimator(int durationMs) {
-        if (progressAnimator != null && progressAnimator.isRunning()) {
-            progressAnimator.cancel();
-        }
+        if (progressAnimator != null && progressAnimator.isRunning()) progressAnimator.cancel();
+
         progressAnimator = ValueAnimator.ofInt(0, 100);
         progressAnimator.setDuration(durationMs);
-
         progressAnimator.addUpdateListener(animation -> {
             pbSongProgress.setProgress((int) animation.getAnimatedValue());
-
-            // 【核心修复】：基于动画进度时间，动态解锁事件。
-            // 这样就算按了暂停再去设置界面，回来后时间轴依然严丝合缝！
             long currentTime = animation.getCurrentPlayTime();
             for (NoteEvent event : noteTimeline) {
                 if (!event.isSpawned && currentTime >= event.spawnTimeMs) {
@@ -206,13 +354,11 @@ public class GMX_Activity extends AppCompatActivity {
                 }
             }
         });
-
         progressAnimator.addListener(new AnimatorListenerAdapter() {
             @Override
-            public void onAnimationEnd(Animator animation) {
-                goToFXActivity();
-            }
+            public void onAnimationEnd(Animator animation) { goToFXActivity(); }
         });
+        progressAnimator.start();
     }
 
     private void goToFXActivity() {
@@ -229,9 +375,6 @@ public class GMX_Activity extends AppCompatActivity {
     @Override
     protected void onResume() {
         super.onResume();
-        if (cameraPreview.isAvailable()) openFrontCamera(cameraPreview.getSurfaceTexture());
-
-        // 恢复播放
         if (progressAnimator != null) {
             if (progressAnimator.isPaused()) progressAnimator.resume();
             else if (!progressAnimator.isRunning() && pbSongProgress.getProgress() == 0) progressAnimator.start();
@@ -241,34 +384,26 @@ public class GMX_Activity extends AppCompatActivity {
     @Override
     protected void onPause() {
         super.onPause();
-        releaseCamera();
-        if (progressAnimator != null && progressAnimator.isRunning()) {
-            progressAnimator.pause();
-        }
+        if (progressAnimator != null && progressAnimator.isRunning()) progressAnimator.pause();
     }
 
     @Override
     protected void onDestroy() {
         super.onDestroy();
         if (progressAnimator != null) progressAnimator.cancel();
-        releaseCamera();
+        if (cameraExecutor != null && !cameraExecutor.isShutdown()) cameraExecutor.shutdown();
+        if (handLandmarker != null) handLandmarker.close();
     }
 
     // ================= 特效类：空心正方形打击反馈 =================
     class HitEffectView extends View {
         private Paint paint;
-        private float cx, cy;
-        private float currentSize = 50f;
+        private float cx, cy, currentSize = 50f;
 
         public HitEffectView(android.content.Context context, int color, float cx, float cy) {
             super(context);
-            this.cx = cx;
-            this.cy = cy;
-            paint = new Paint();
-            paint.setColor(color);
-            paint.setStyle(Paint.Style.STROKE);
-            paint.setStrokeWidth(15);
-            paint.setAntiAlias(true);
+            this.cx = cx; this.cy = cy;
+            paint = new Paint(); paint.setColor(color); paint.setStyle(Paint.Style.STROKE); paint.setStrokeWidth(15); paint.setAntiAlias(true);
 
             post(() -> {
                 ValueAnimator anim = ValueAnimator.ofFloat(0f, 1f);
@@ -280,27 +415,26 @@ public class GMX_Activity extends AppCompatActivity {
                     invalidate();
                 });
                 anim.addListener(new AnimatorListenerAdapter() {
-                    @Override
-                    public void onAnimationEnd(Animator animation) {
+                    @Override public void onAnimationEnd(Animator animation) {
                         if (getParent() != null) ((ViewGroup) getParent()).removeView(HitEffectView.this);
                     }
                 });
                 anim.start();
             });
         }
-
-        @Override
-        protected void onDraw(Canvas canvas) {
+        @Override protected void onDraw(Canvas canvas) {
             float half = currentSize / 2f;
             canvas.drawRect(cx - half, cy - half, cx + half, cy + half, paint);
         }
     }
 
-    // ================= 自定义音符视图类 =================
+    // ================= 自定义交互音符视图类 =================
 
+    // 1. 蓝色音符 (检测双手下压)
     class BlueNoteView extends View {
         private Paint innerPaint, strokePaint;
         private float sweepAngle = 0;
+        private boolean isHit = false;
 
         public BlueNoteView(android.content.Context context) {
             super(context);
@@ -309,23 +443,29 @@ public class GMX_Activity extends AppCompatActivity {
 
             post(() -> {
                 ValueAnimator anim = ValueAnimator.ofFloat(0, 360);
-                anim.setStartDelay(500); // 使用系统的 StartDelay 替代 Handler
-                anim.setDuration(1000);
-                anim.addUpdateListener(a -> { sweepAngle = (float) a.getAnimatedValue(); invalidate(); });
-                anim.addListener(new AnimatorListenerAdapter() {
-                    @Override public void onAnimationEnd(Animator animation) {
+                anim.setDuration(1500);
+                anim.addUpdateListener(a -> {
+                    if (isHit) return;
+                    sweepAngle = (float) a.getAnimatedValue();
+                    if (flagPushing) {
+                        isHit = true;
                         if (getParent() != null) {
                             ((FrameLayout) getParent()).addView(new HitEffectView(getContext(), Color.parseColor("#00BFFF"), getWidth() / 2f, getHeight() / 2f));
                             ((ViewGroup) getParent()).removeView(BlueNoteView.this);
                         }
+                        anim.cancel();
+                    }
+                    invalidate();
+                });
+                anim.addListener(new AnimatorListenerAdapter() {
+                    @Override public void onAnimationEnd(Animator animation) {
+                        if (!isHit && getParent() != null) ((ViewGroup) getParent()).removeView(BlueNoteView.this);
                     }
                 });
                 anim.start();
             });
         }
-
-        @Override
-        protected void onDraw(Canvas canvas) {
+        @Override protected void onDraw(Canvas canvas) {
             float cx = getWidth() / 2f, cy = getHeight() / 2f, radius = 150f;
             canvas.drawCircle(cx, cy, radius, innerPaint);
             RectF rect = new RectF(cx - radius, cy - radius, cx + radius, cy + radius);
@@ -333,6 +473,7 @@ public class GMX_Activity extends AppCompatActivity {
         }
     }
 
+    // 2. 紫色音符 (检测指上/下)
     class PurpleNoteView extends View {
         private Paint innerPaint, strokePaint;
         private float sweepAngle = 0;
@@ -347,18 +488,20 @@ public class GMX_Activity extends AppCompatActivity {
 
             post(() -> {
                 ValueAnimator anim = ValueAnimator.ofFloat(0, 360);
-                anim.setStartDelay(500);
-                anim.setDuration(1000);
+                anim.setDuration(1500);
                 anim.addUpdateListener(a -> {
                     sweepAngle = (float) a.getAnimatedValue();
-                    long currentTime = a.getCurrentPlayTime(); // 获取去除 delay 后的纯播放时间
+                    long currentTime = a.getCurrentPlayTime();
+                    boolean isCorrectPointing = isTop ? flagPointingTop : flagPointingBottom;
 
-                    if (currentTime - lastEffectTime >= 100) {
-                        lastEffectTime = currentTime;
-                        if (getParent() != null) {
-                            float cx = getWidth() / 2f;
-                            float cy = isTop ? getHeight() * 0.25f : getHeight() * 0.75f;
-                            ((FrameLayout) getParent()).addView(new HitEffectView(getContext(), Color.parseColor("#9932CC"), cx, cy));
+                    if (isCorrectPointing) {
+                        if (currentTime - lastEffectTime >= 100) {
+                            lastEffectTime = currentTime;
+                            if (getParent() != null) {
+                                float cx = getWidth() / 2f;
+                                float cy = isTop ? getHeight() * 0.25f : getHeight() * 0.75f;
+                                ((FrameLayout) getParent()).addView(new HitEffectView(getContext(), Color.parseColor("#9932CC"), cx, cy));
+                            }
                         }
                     }
                     invalidate();
@@ -371,11 +514,8 @@ public class GMX_Activity extends AppCompatActivity {
                 anim.start();
             });
         }
-
-        @Override
-        protected void onDraw(Canvas canvas) {
-            float cx = getWidth() / 2f;
-            float cy = isTop ? getHeight() * 0.25f : getHeight() * 0.75f;
+        @Override protected void onDraw(Canvas canvas) {
+            float cx = getWidth() / 2f; float cy = isTop ? getHeight() * 0.25f : getHeight() * 0.75f;
             float radius = 90f;
             canvas.drawCircle(cx, cy, radius, innerPaint);
             RectF rect = new RectF(cx - radius, cy - radius, cx + radius, cy + radius);
@@ -383,68 +523,60 @@ public class GMX_Activity extends AppCompatActivity {
         }
     }
 
+    // 3. 紫色连接线 (检测区域变换)
     class PurpleLinkView extends View {
         private Paint paint;
         private boolean isTopToBottom;
+        private boolean isHit = false;
 
         public PurpleLinkView(android.content.Context context, boolean isTopToBottom) {
             super(context);
             this.isTopToBottom = isTopToBottom;
-            paint = new Paint();
-            paint.setColor(Color.parseColor("#4B0082"));
-            paint.setStrokeWidth(20);
-            paint.setStyle(Paint.Style.STROKE);
-            paint.setStrokeJoin(Paint.Join.ROUND);
-            paint.setStrokeCap(Paint.Cap.ROUND);
-            paint.setAntiAlias(true);
+            paint = new Paint(); paint.setColor(Color.parseColor("#4B0082")); paint.setStrokeWidth(20);
+            paint.setStyle(Paint.Style.STROKE); paint.setStrokeJoin(Paint.Join.ROUND); paint.setStrokeCap(Paint.Cap.ROUND); paint.setAntiAlias(true);
 
             post(() -> {
-                ValueAnimator timerAnim = ValueAnimator.ofFloat(0, 1);
-                // 【修改点1】：紫键寿命(1500ms) + 0.1s(100ms) = 1600ms
-                timerAnim.setDuration(1600);
-                timerAnim.addListener(new AnimatorListenerAdapter() {
-                    @Override
-                    public void onAnimationEnd(Animator animation) {
+                ValueAnimator anim = ValueAnimator.ofFloat(0, 1);
+                anim.setDuration(1600);
+                anim.addUpdateListener(a -> {
+                    if (isHit) return;
+                    boolean isZoneChanged = isTopToBottom ? flagPointingBottom : flagPointingTop;
+                    if (isZoneChanged) {
+                        isHit = true;
                         if (getParent() != null) {
-                            float cx = getWidth() / 2f;
-                            float cy = getHeight() * 0.5f;
+                            float cx = getWidth() / 2f, cy = getHeight() * 0.5f;
                             ((FrameLayout) getParent()).addView(new HitEffectView(getContext(), Color.parseColor("#4B0082"), cx, cy));
                             ((ViewGroup) getParent()).removeView(PurpleLinkView.this);
                         }
+                        anim.cancel();
                     }
                 });
-                timerAnim.start();
+                anim.addListener(new AnimatorListenerAdapter() {
+                    @Override public void onAnimationEnd(Animator animation) {
+                        if (!isHit && getParent() != null) ((ViewGroup) getParent()).removeView(PurpleLinkView.this);
+                    }
+                });
+                anim.start();
             });
         }
-
-        @Override
-        protected void onDraw(Canvas canvas) {
-            float cx = getWidth() / 2f;
-            Path path = new Path();
-
+        @Override protected void onDraw(Canvas canvas) {
+            float cx = getWidth() / 2f; Path path = new Path();
             float startY = isTopToBottom ? getHeight() * 0.35f : getHeight() * 0.65f;
             float endY = isTopToBottom ? getHeight() * 0.65f : getHeight() * 0.35f;
-
             canvas.drawLine(cx, startY, cx, endY, paint);
-
             for (int i = 1; i <= 3; i++) {
                 float y = startY + (endY - startY) * (i / 4f);
                 if (isTopToBottom) {
-                    path.moveTo(cx - 30, y - 30);
-                    path.lineTo(cx, y);
-                    path.lineTo(cx + 30, y - 30);
+                    path.moveTo(cx - 30, y - 30); path.lineTo(cx, y); path.lineTo(cx + 30, y - 30);
                 } else {
-                    path.moveTo(cx - 30, y + 30);
-                    path.lineTo(cx, y);
-                    path.lineTo(cx + 30, y + 30);
+                    path.moveTo(cx - 30, y + 30); path.lineTo(cx, y); path.lineTo(cx + 30, y + 30);
                 }
             }
             canvas.drawPath(path, paint);
         }
     }
 
-    // 4. 橙色长条音符 (【核心修复】：纯净的碰撞检测逻辑)
-    // 4. 橙色长条音符
+    // 4. 橙色长条音符 (检测边缘触碰 + 缓慢抬手)
     class OrangeNoteView extends View {
         private Paint paint;
         private float currentX = -1;
@@ -457,13 +589,11 @@ public class GMX_Activity extends AppCompatActivity {
             paint = new Paint(); paint.setColor(Color.parseColor("#FFA500"));
 
             post(() -> {
-                float startX = getWidth() / 2f;
-                float rectWidth = 400f;
+                float startX = getWidth() / 2f, rectWidth = 400f;
                 float endX = isLeft ? -rectWidth : getWidth() + rectWidth;
 
                 ValueAnimator anim = ValueAnimator.ofFloat(startX, endX);
-                anim.setStartDelay(500);
-                anim.setDuration(1500);
+                anim.setDuration(2000);
                 anim.addUpdateListener(a -> {
                     currentX = (float) a.getAnimatedValue();
                     long currentTime = a.getCurrentPlayTime();
@@ -471,25 +601,19 @@ public class GMX_Activity extends AppCompatActivity {
                     float leftEdge = isLeft ? currentX - rectWidth : currentX;
                     float rightEdge = isLeft ? currentX : currentX + rectWidth;
 
-                    boolean isTouchingEdge = false;
-                    if (isLeft) {
-                        if (leftEdge <= 0 && rightEdge >= 0) isTouchingEdge = true;
-                    } else {
-                        if (rightEdge >= getWidth() && leftEdge <= getWidth()) isTouchingEdge = true;
-                    }
+                    boolean isTouchingEdge = (isLeft) ? (leftEdge <= 0 && rightEdge >= 0) : (rightEdge >= getWidth() && leftEdge <= getWidth());
+                    boolean isCorrectRaising = isLeft ? flagRaisingLeft : flagRaisingRight;
 
-                    if (isTouchingEdge) {
+                    if (isTouchingEdge && isCorrectRaising) {
                         if (currentTime - lastEffectTime >= 100) {
                             lastEffectTime = currentTime;
                             if (getParent() != null) {
                                 float cy = getHeight() * 0.5f;
-                                // 【修改点2】：将原来的 100f 和 getWidth() - 100f 替换为严丝合缝的 0f 和 getWidth()
                                 float effectX = isLeft ? 0f : getWidth();
                                 ((FrameLayout) getParent()).addView(new HitEffectView(getContext(), Color.parseColor("#FFA500"), effectX, cy));
                             }
                         }
                     }
-
                     invalidate();
                 });
                 anim.addListener(new AnimatorListenerAdapter() {
@@ -500,56 +624,59 @@ public class GMX_Activity extends AppCompatActivity {
                 anim.start();
             });
         }
-
-        @Override
-        protected void onDraw(Canvas canvas) {
+        @Override protected void onDraw(Canvas canvas) {
             if (currentX == -1) currentX = getWidth() / 2f;
-            float cy = getHeight() * 0.5f;
-            float rectWidth = 400f, rectHeight = 120f;
+            float cy = getHeight() * 0.5f, rectWidth = 400f, rectHeight = 120f;
             float left = isLeft ? currentX - rectWidth : currentX;
             canvas.drawRect(left, cy - rectHeight/2, left + rectWidth, cy + rectHeight/2, paint);
         }
     }
 
+    // 5. 黄色短音符 (检测进入底部 + 缓慢抬手)
     class YellowNoteView extends View {
         private Paint paint;
         private float currentY = -1;
         private boolean isLeft;
+        private boolean isHit = false;
 
         public YellowNoteView(android.content.Context context, boolean isLeft) {
             super(context);
             this.isLeft = isLeft;
-            paint = new Paint();
-            paint.setColor(Color.YELLOW);
-            paint.setStrokeWidth(40);
-            paint.setStrokeCap(Paint.Cap.ROUND);
+            paint = new Paint(); paint.setColor(Color.YELLOW); paint.setStrokeWidth(40); paint.setStrokeCap(Paint.Cap.ROUND);
 
             post(() -> {
                 float startY = getHeight() * 0.25f;
                 float endY = getHeight() + 100f;
 
                 ValueAnimator anim = ValueAnimator.ofFloat(startY, endY);
-                anim.setDuration(1000);
+                anim.setDuration(1200);
                 anim.addUpdateListener(a -> {
+                    if (isHit) return;
                     currentY = (float) a.getAnimatedValue();
-                    invalidate();
-                });
-                anim.addListener(new AnimatorListenerAdapter() {
-                    @Override
-                    public void onAnimationEnd(Animator animation) {
+
+                    boolean inHitZone = currentY > getHeight() - 300f; // 落到底部300像素内视为判定区
+                    boolean isCorrectRaising = isLeft ? flagRaisingLeft : flagRaisingRight;
+
+                    if (inHitZone && isCorrectRaising) {
+                        isHit = true;
                         if (getParent() != null) {
                             float cx = isLeft ? getWidth() * 0.25f : getWidth() * 0.75f;
                             ((FrameLayout) getParent()).addView(new HitEffectView(getContext(), Color.YELLOW, cx, getHeight()));
                             ((ViewGroup) getParent()).removeView(YellowNoteView.this);
                         }
+                        anim.cancel();
+                    }
+                    invalidate();
+                });
+                anim.addListener(new AnimatorListenerAdapter() {
+                    @Override public void onAnimationEnd(Animator animation) {
+                        if (!isHit && getParent() != null) ((ViewGroup) getParent()).removeView(YellowNoteView.this);
                     }
                 });
                 anim.start();
             });
         }
-
-        @Override
-        protected void onDraw(Canvas canvas) {
+        @Override protected void onDraw(Canvas canvas) {
             if (currentY == -1) currentY = getHeight() * 0.25f;
             float cx = isLeft ? getWidth() * 0.25f : getWidth() * 0.75f;
             float lineWidth = 150f;

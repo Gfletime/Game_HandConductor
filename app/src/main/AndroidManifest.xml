@@ -25,7 +25,8 @@
             android:exported="false" />
         <activity
             android:name=".GMX_Activity"
-            android:exported="false" />
+            android:screenOrientation="sensorLandscape"
+            android:exported="true" />
         <activity
             android:name=".S1_Activity"
             android:exported="false" />
