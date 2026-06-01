@@ -449,11 +449,12 @@ public class GMX_Activity extends AppCompatActivity {
     }
 
     // 2. 紫色音符 (长按交互，动态时间与严格容错)
+    // 2. 紫色音符 (修复：确保无论是击打成功还是 Miss，在 t 时间结束时必然移除)
     class PurpleNoteView extends View {
         private Paint innerPaint, strokePaint;
         private float sweepAngle = 0;
         private boolean isTop;
-        private PurpleLinkView linkView; // 绑定的紫链接键
+        private PurpleLinkView linkView;
 
         private long t = 5000; // 寿命设定为5s
         private long m = 2000; // 容错设定为2s
@@ -472,35 +473,31 @@ public class GMX_Activity extends AppCompatActivity {
 
             post(() -> {
                 ValueAnimator anim = ValueAnimator.ofFloat(0, 1f);
-                anim.setDuration(t); // 按设定寿命进行
+                anim.setDuration(t);
                 anim.addUpdateListener(a -> {
                     if (isMissed || isSuccessCompleted) return;
                     long currentTime = a.getCurrentPlayTime();
                     boolean isCorrectPointing = isTop ? flagPointingTop : flagPointingBottom;
 
                     if (hitStartTime == -1) {
-                        // 还没有开始交互
                         if (isCorrectPointing) {
-                            hitStartTime = currentTime; // 玩家开始长按！
+                            hitStartTime = currentTime;
                         } else if (currentTime > m) {
-                            // 超过初始容错m没交互，直接MISS
                             triggerMiss();
                         }
                     } else {
-                        // 正在交互中
                         if (!isCorrectPointing) {
                             if (dropStartTime == -1) dropStartTime = currentTime;
                             else if (currentTime - dropStartTime > 300) {
-                                triggerMiss(); // 断开超过 300ms 容错，MISS
+                                triggerMiss();
                             }
                         } else {
-                            dropStartTime = -1; // 恢复识别，清空断开计时
+                            dropStartTime = -1;
                         }
 
-                        // 动态计算进度圈：剩余时间内走完360度
                         if (hitStartTime != -1 && !isMissed) {
                             float progress = (float)(currentTime - hitStartTime) / (t - hitStartTime);
-                            sweepAngle = progress * 360f;
+                            sweepAngle = Math.max(0, Math.min(360f, progress * 360f));
 
                             if (currentTime - lastEffectTime >= 100) {
                                 lastEffectTime = currentTime;
@@ -515,12 +512,13 @@ public class GMX_Activity extends AppCompatActivity {
                 });
                 anim.addListener(new AnimatorListenerAdapter() {
                     @Override public void onAnimationEnd(Animator animation) {
-                        if (!isMissed && hitStartTime != -1) {
-                            isSuccessCompleted = true;
-                            if (linkView != null) linkView.activate(); // 【核心】：成功结束时，唤醒后续的链接键
-                            if (getParent() != null) ((ViewGroup) getParent()).removeView(PurpleNoteView.this);
-                        } else {
-                            if (!isMissed) triggerMiss();
+                        // 【核心修复】：无论是否Miss，只要动画结束(t时间到)，必须移除
+                        if (getParent() != null) {
+                            if (!isMissed && hitStartTime != -1) {
+                                isSuccessCompleted = true;
+                                if (linkView != null) linkView.activate();
+                            }
+                            ((ViewGroup) getParent()).removeView(PurpleNoteView.this);
                         }
                     }
                 });
@@ -529,11 +527,12 @@ public class GMX_Activity extends AppCompatActivity {
         }
 
         private void triggerMiss() {
+            if (isMissed) return;
             isMissed = true;
             setAlpha(0.3f);
             invalidate();
-            if (linkView != null) linkView.triggerMiss(); // 连带惩罚
-            // Miss后透明度降低，在存活时间结束(t)时会被自然移除
+            if (linkView != null) linkView.triggerMiss();
+            // Miss 后，我们不需要立即 removeView，让 ValueAnimator 跑完 t 时间后由 onAnimationEnd 统一移除
         }
 
         @Override protected void onDraw(Canvas canvas) {
