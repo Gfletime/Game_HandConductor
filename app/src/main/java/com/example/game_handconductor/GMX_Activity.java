@@ -65,7 +65,7 @@ public class GMX_Activity extends AppCompatActivity {
     private PreviewView viewFinder;
     private static final int CAMERA_REQ_CODE = 100;
 
-    // ================= 手势实时交互状态 (全局同步给音符使用) =================
+    // ================= 手势实时交互状态 =================
     public volatile boolean flagPushing = false;
     public volatile boolean flagPointingTop = false;
     public volatile boolean flagPointingBottom = false;
@@ -81,7 +81,7 @@ public class GMX_Activity extends AppCompatActivity {
     }
     private List<NoteEvent> noteTimeline = new ArrayList<>();
 
-    // ================= 手势识别追踪器 (照搬自你的测试代码) =================
+    // ================= 手势识别追踪器 =================
     private static class RaiseTrendTracker {
         List<Float> tipHistory = new ArrayList<>();
         boolean isPrepReady = false;
@@ -141,7 +141,6 @@ public class GMX_Activity extends AppCompatActivity {
     private final MovementTracker rightScreenTracker = new MovementTracker();
 
     // ================= Activity 生命周期 =================
-
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -175,8 +174,6 @@ public class GMX_Activity extends AppCompatActivity {
         initNoteTimeline();
     }
 
-    // ================= 摄像头与 MediaPipe 初始化 =================
-
     private void checkCameraPermissionAndInit() {
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
             ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.CAMERA}, CAMERA_REQ_CODE);
@@ -200,14 +197,11 @@ public class GMX_Activity extends AppCompatActivity {
                 .setModelAssetPath("hand_landmarker.task")
                 .setDelegate(Delegate.GPU)
                 .build();
-
         HandLandmarker.HandLandmarkerOptions options = HandLandmarker.HandLandmarkerOptions.builder()
-                .setBaseOptions(baseOptions)
-                .setRunningMode(RunningMode.LIVE_STREAM)
+                .setBaseOptions(baseOptions).setRunningMode(RunningMode.LIVE_STREAM)
                 .setNumHands(2)
                 .setResultListener((result, image) -> processHandResult(result))
-                .setErrorListener(error -> Log.e("MediaPipe", "Error: ", error))
-                .build();
+                .setErrorListener(error -> Log.e("MediaPipe", "Error: ", error)).build();
         handLandmarker = HandLandmarker.createFromOptions(this, options);
     }
 
@@ -218,11 +212,9 @@ public class GMX_Activity extends AppCompatActivity {
                 ProcessCameraProvider cameraProvider = cameraProviderFuture.get();
                 Preview preview = new Preview.Builder().build();
                 preview.setSurfaceProvider(viewFinder.getSurfaceProvider());
-
                 ImageAnalysis imageAnalyzer = new ImageAnalysis.Builder()
                         .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
-                        .setTargetResolution(new Size(640, 480))
-                        .build();
+                        .setTargetResolution(new Size(640, 480)).build();
 
                 imageAnalyzer.setAnalyzer(cameraExecutor, imageProxy -> {
                     Bitmap bitmap = imageProxy.toBitmap();
@@ -230,7 +222,6 @@ public class GMX_Activity extends AppCompatActivity {
                     handLandmarker.detectAsync(mpImage, imageProxy.getImageInfo().getTimestamp());
                     imageProxy.close();
                 });
-
                 cameraProvider.unbindAll();
                 cameraProvider.bindToLifecycle(this, CameraSelector.DEFAULT_FRONT_CAMERA, preview, imageAnalyzer);
             } catch (Exception e) {
@@ -243,18 +234,13 @@ public class GMX_Activity extends AppCompatActivity {
         float dx = p1.x() - p2.x(); float dy = p1.y() - p2.y(); return (float) Math.sqrt(dx * dx + dy * dy);
     }
 
-    // ================= 核心手势处理逻辑 =================
     private void processHandResult(HandLandmarkerResult result) {
         List<List<NormalizedLandmark>> landmarks = result.landmarks();
         long now = System.currentTimeMillis();
 
-        boolean currentTopPurple = false;
-        boolean currentBottomPurple = false;
-        boolean currentLeftRaise = false;
-        boolean currentRightRaise = false;
-        boolean currentPush = false;
-        boolean foundLeft = false;
-        boolean foundRight = false;
+        boolean currentTopPurple = false, currentBottomPurple = false;
+        boolean currentLeftRaise = false, currentRightRaise = false;
+        boolean currentPush = false, foundLeft = false, foundRight = false;
 
         if (landmarks != null && !landmarks.isEmpty()) {
             boolean leftInverted = false, rightInverted = false;
@@ -265,14 +251,11 @@ public class GMX_Activity extends AppCompatActivity {
 
                 float avgTipY = (hand.get(8).y() + hand.get(12).y() + hand.get(16).y() + hand.get(20).y()) / 4f;
                 if (isLeft) {
-                    leftRaiseTrend.update(avgTipY, now);
-                    leftScreenTracker.update(now, hand.get(9).y());
+                    leftRaiseTrend.update(avgTipY, now); leftScreenTracker.update(now, hand.get(9).y());
                 } else {
-                    rightRaiseTrend.update(avgTipY, now);
-                    rightScreenTracker.update(now, hand.get(9).y());
+                    rightRaiseTrend.update(avgTipY, now); rightScreenTracker.update(now, hand.get(9).y());
                 }
 
-                // 伸手指检测
                 boolean indexExtended = getDistance(wrist, hand.get(8)) > getDistance(wrist, hand.get(6));
                 boolean middleCurled = getDistance(wrist, hand.get(12)) < getDistance(wrist, hand.get(10));
                 boolean ringCurled = getDistance(wrist, hand.get(16)) < getDistance(wrist, hand.get(14));
@@ -281,7 +264,6 @@ public class GMX_Activity extends AppCompatActivity {
                     if (hand.get(8).y() < 0.5f) currentTopPurple = true; else currentBottomPurple = true;
                 }
 
-                // 下压特征
                 boolean inverted = hand.get(8).y() > hand.get(6).y() && hand.get(12).y() > hand.get(10).y() &&
                         hand.get(16).y() > hand.get(14).y() && hand.get(20).y() > hand.get(18).y();
                 if (inverted) { if (isLeft) leftInverted = true; else rightInverted = true; }
@@ -294,15 +276,10 @@ public class GMX_Activity extends AppCompatActivity {
                 currentRightRaise = true;
             }
             if (foundLeft && foundRight) {
-                float leftDrop = leftScreenTracker.getDropDistance();
-                float rightDrop = rightScreenTracker.getDropDistance();
-                if ((leftDrop > 0.08f && rightDrop > 0.08f) || (leftInverted && rightInverted)) {
-                    currentPush = true;
-                }
+                float leftDrop = leftScreenTracker.getDropDistance(), rightDrop = rightScreenTracker.getDropDistance();
+                if ((leftDrop > 0.08f && rightDrop > 0.08f) || (leftInverted && rightInverted)) currentPush = true;
             }
         }
-
-        // 将本帧计算出的状态同步给全局变量，供音符判定使用
         flagPushing = currentPush;
         flagPointingTop = currentTopPurple;
         flagPointingBottom = currentBottomPurple;
@@ -316,16 +293,17 @@ public class GMX_Activity extends AppCompatActivity {
         long t = 1000;
 
         noteTimeline.add(new NoteEvent(t, () -> noteContainer.addView(new BlueNoteView(this)))); t += 2000;
-        noteTimeline.add(new NoteEvent(t, () -> noteContainer.addView(new PurpleNoteView(this, true)))); t += 2000;
+        noteTimeline.add(new NoteEvent(t, () -> noteContainer.addView(new PurpleNoteView(this, true, null)))); t += 3000; // 留出5s寿命空间
 
         noteTimeline.add(new NoteEvent(t, () -> {
-            noteContainer.addView(new PurpleLinkView(this, true));
-            noteContainer.addView(new PurpleNoteView(this, true));
-        })); t += 2000;
+            PurpleLinkView link = new PurpleLinkView(this, true);
+            noteContainer.addView(link);
+            noteContainer.addView(new PurpleNoteView(this, true, link));
+        })); t += 3000;
 
-        noteTimeline.add(new NoteEvent(t, () -> noteContainer.addView(new PurpleNoteView(this, false)))); t += 2000;
-        noteTimeline.add(new NoteEvent(t, () -> noteContainer.addView(new OrangeNoteView(this, true)))); t += 2000;
-        noteTimeline.add(new NoteEvent(t, () -> noteContainer.addView(new OrangeNoteView(this, false)))); t += 2000;
+        noteTimeline.add(new NoteEvent(t, () -> noteContainer.addView(new PurpleNoteView(this, false, null)))); t += 3000;
+        noteTimeline.add(new NoteEvent(t, () -> noteContainer.addView(new OrangeNoteView(this, true)))); t += 2500;
+        noteTimeline.add(new NoteEvent(t, () -> noteContainer.addView(new OrangeNoteView(this, false)))); t += 2500;
 
         noteTimeline.add(new NoteEvent(t, () -> noteContainer.addView(new YellowNoteView(this, true)))); t += 500;
         noteTimeline.add(new NoteEvent(t, () -> noteContainer.addView(new YellowNoteView(this, true)))); t += 500;
@@ -333,10 +311,9 @@ public class GMX_Activity extends AppCompatActivity {
 
         noteTimeline.add(new NoteEvent(t, () -> noteContainer.addView(new YellowNoteView(this, false)))); t += 500;
         noteTimeline.add(new NoteEvent(t, () -> noteContainer.addView(new YellowNoteView(this, false)))); t += 500;
-        noteTimeline.add(new NoteEvent(t, () -> noteContainer.addView(new YellowNoteView(this, false)))); t += 2000;
+        noteTimeline.add(new NoteEvent(t, () -> noteContainer.addView(new YellowNoteView(this, false)))); t += 3000;
 
-        int totalDuration = (int) t;
-        setupProgressAnimator(totalDuration);
+        setupProgressAnimator((int) t);
     }
 
     private void setupProgressAnimator(int durationMs) {
@@ -355,8 +332,7 @@ public class GMX_Activity extends AppCompatActivity {
             }
         });
         progressAnimator.addListener(new AnimatorListenerAdapter() {
-            @Override
-            public void onAnimationEnd(Animator animation) { goToFXActivity(); }
+            @Override public void onAnimationEnd(Animator animation) { goToFXActivity(); }
         });
         progressAnimator.start();
     }
@@ -395,7 +371,7 @@ public class GMX_Activity extends AppCompatActivity {
         if (handLandmarker != null) handLandmarker.close();
     }
 
-    // ================= 特效类：空心正方形打击反馈 =================
+    // ================= 特效类 =================
     class HitEffectView extends View {
         private Paint paint;
         private float cx, cy, currentSize = 50f;
@@ -404,7 +380,6 @@ public class GMX_Activity extends AppCompatActivity {
             super(context);
             this.cx = cx; this.cy = cy;
             paint = new Paint(); paint.setColor(color); paint.setStyle(Paint.Style.STROKE); paint.setStrokeWidth(15); paint.setAntiAlias(true);
-
             post(() -> {
                 ValueAnimator anim = ValueAnimator.ofFloat(0f, 1f);
                 anim.setDuration(400);
@@ -430,7 +405,7 @@ public class GMX_Activity extends AppCompatActivity {
 
     // ================= 自定义交互音符视图类 =================
 
-    // 1. 蓝色音符 (检测双手下压)
+    // 1. 蓝色音符
     class BlueNoteView extends View {
         private Paint innerPaint, strokePaint;
         private float sweepAngle = 0;
@@ -473,34 +448,66 @@ public class GMX_Activity extends AppCompatActivity {
         }
     }
 
-    // 2. 紫色音符 (检测指上/下)
+    // 2. 紫色音符 (长按交互，动态时间与严格容错)
     class PurpleNoteView extends View {
         private Paint innerPaint, strokePaint;
         private float sweepAngle = 0;
         private boolean isTop;
+        private PurpleLinkView linkView; // 绑定的紫链接键
+
+        private long t = 5000; // 寿命设定为5s
+        private long m = 2000; // 容错设定为2s
+        private long hitStartTime = -1;
+        private long dropStartTime = -1;
+        private boolean isMissed = false;
+        private boolean isSuccessCompleted = false;
         private long lastEffectTime = 0;
 
-        public PurpleNoteView(android.content.Context context, boolean isTop) {
+        public PurpleNoteView(android.content.Context context, boolean isTop, PurpleLinkView link) {
             super(context);
             this.isTop = isTop;
+            this.linkView = link;
             innerPaint = new Paint(); innerPaint.setColor(Color.parseColor("#9932CC")); innerPaint.setAntiAlias(true);
             strokePaint = new Paint(); strokePaint.setColor(Color.parseColor("#4B0082")); strokePaint.setStyle(Paint.Style.STROKE); strokePaint.setStrokeWidth(25); strokePaint.setAntiAlias(true);
 
             post(() -> {
-                ValueAnimator anim = ValueAnimator.ofFloat(0, 360);
-                anim.setDuration(1500);
+                ValueAnimator anim = ValueAnimator.ofFloat(0, 1f);
+                anim.setDuration(t); // 按设定寿命进行
                 anim.addUpdateListener(a -> {
-                    sweepAngle = (float) a.getAnimatedValue();
+                    if (isMissed || isSuccessCompleted) return;
                     long currentTime = a.getCurrentPlayTime();
                     boolean isCorrectPointing = isTop ? flagPointingTop : flagPointingBottom;
 
-                    if (isCorrectPointing) {
-                        if (currentTime - lastEffectTime >= 100) {
-                            lastEffectTime = currentTime;
-                            if (getParent() != null) {
-                                float cx = getWidth() / 2f;
-                                float cy = isTop ? getHeight() * 0.25f : getHeight() * 0.75f;
-                                ((FrameLayout) getParent()).addView(new HitEffectView(getContext(), Color.parseColor("#9932CC"), cx, cy));
+                    if (hitStartTime == -1) {
+                        // 还没有开始交互
+                        if (isCorrectPointing) {
+                            hitStartTime = currentTime; // 玩家开始长按！
+                        } else if (currentTime > m) {
+                            // 超过初始容错m没交互，直接MISS
+                            triggerMiss();
+                        }
+                    } else {
+                        // 正在交互中
+                        if (!isCorrectPointing) {
+                            if (dropStartTime == -1) dropStartTime = currentTime;
+                            else if (currentTime - dropStartTime > 300) {
+                                triggerMiss(); // 断开超过 300ms 容错，MISS
+                            }
+                        } else {
+                            dropStartTime = -1; // 恢复识别，清空断开计时
+                        }
+
+                        // 动态计算进度圈：剩余时间内走完360度
+                        if (hitStartTime != -1 && !isMissed) {
+                            float progress = (float)(currentTime - hitStartTime) / (t - hitStartTime);
+                            sweepAngle = progress * 360f;
+
+                            if (currentTime - lastEffectTime >= 100) {
+                                lastEffectTime = currentTime;
+                                if (getParent() != null) {
+                                    float cx = getWidth() / 2f, cy = isTop ? getHeight() * 0.25f : getHeight() * 0.75f;
+                                    ((FrameLayout) getParent()).addView(new HitEffectView(getContext(), Color.parseColor("#9932CC"), cx, cy));
+                                }
                             }
                         }
                     }
@@ -508,12 +515,27 @@ public class GMX_Activity extends AppCompatActivity {
                 });
                 anim.addListener(new AnimatorListenerAdapter() {
                     @Override public void onAnimationEnd(Animator animation) {
-                        if (getParent() != null) ((ViewGroup) getParent()).removeView(PurpleNoteView.this);
+                        if (!isMissed && hitStartTime != -1) {
+                            isSuccessCompleted = true;
+                            if (linkView != null) linkView.activate(); // 【核心】：成功结束时，唤醒后续的链接键
+                            if (getParent() != null) ((ViewGroup) getParent()).removeView(PurpleNoteView.this);
+                        } else {
+                            if (!isMissed) triggerMiss();
+                        }
                     }
                 });
                 anim.start();
             });
         }
+
+        private void triggerMiss() {
+            isMissed = true;
+            setAlpha(0.3f);
+            invalidate();
+            if (linkView != null) linkView.triggerMiss(); // 连带惩罚
+            // Miss后透明度降低，在存活时间结束(t)时会被自然移除
+        }
+
         @Override protected void onDraw(Canvas canvas) {
             float cx = getWidth() / 2f; float cy = isTop ? getHeight() * 0.25f : getHeight() * 0.75f;
             float radius = 90f;
@@ -523,42 +545,59 @@ public class GMX_Activity extends AppCompatActivity {
         }
     }
 
-    // 3. 紫色连接线 (检测区域变换)
+    // 3. 紫色连接线 (前置唤醒逻辑)
     class PurpleLinkView extends View {
         private Paint paint;
         private boolean isTopToBottom;
         private boolean isHit = false;
+        private boolean isMissed = false;
 
         public PurpleLinkView(android.content.Context context, boolean isTopToBottom) {
             super(context);
             this.isTopToBottom = isTopToBottom;
             paint = new Paint(); paint.setColor(Color.parseColor("#4B0082")); paint.setStrokeWidth(20);
             paint.setStyle(Paint.Style.STROKE); paint.setStrokeJoin(Paint.Join.ROUND); paint.setStrokeCap(Paint.Cap.ROUND); paint.setAntiAlias(true);
-
-            post(() -> {
-                ValueAnimator anim = ValueAnimator.ofFloat(0, 1);
-                anim.setDuration(1600);
-                anim.addUpdateListener(a -> {
-                    if (isHit) return;
-                    boolean isZoneChanged = isTopToBottom ? flagPointingBottom : flagPointingTop;
-                    if (isZoneChanged) {
-                        isHit = true;
-                        if (getParent() != null) {
-                            float cx = getWidth() / 2f, cy = getHeight() * 0.5f;
-                            ((FrameLayout) getParent()).addView(new HitEffectView(getContext(), Color.parseColor("#4B0082"), cx, cy));
-                            ((ViewGroup) getParent()).removeView(PurpleLinkView.this);
-                        }
-                        anim.cancel();
-                    }
-                });
-                anim.addListener(new AnimatorListenerAdapter() {
-                    @Override public void onAnimationEnd(Animator animation) {
-                        if (!isHit && getParent() != null) ((ViewGroup) getParent()).removeView(PurpleLinkView.this);
-                    }
-                });
-                anim.start();
-            });
         }
+
+        // 被父节点紫键 Miss 时调用
+        public void triggerMiss() {
+            if (isHit) return;
+            isMissed = true;
+            setAlpha(0.3f);
+            invalidate();
+            // 在惩罚结束后自然消失
+            new Handler(Looper.getMainLooper()).postDelayed(() -> {
+                if (getParent() != null) ((ViewGroup) getParent()).removeView(this);
+            }, 500);
+        }
+
+        // 只有父节点紫键成功走完 t 时间，才会激活此滑动判定
+        public void activate() {
+            if (isMissed) return;
+
+            ValueAnimator anim = ValueAnimator.ofFloat(0, 1);
+            anim.setDuration(800); // 给予玩家非常宽裕的 800ms 去换区滑动
+            anim.addUpdateListener(a -> {
+                if (isHit || isMissed) return;
+                boolean isZoneChanged = isTopToBottom ? flagPointingBottom : flagPointingTop;
+                if (isZoneChanged) {
+                    isHit = true;
+                    if (getParent() != null) {
+                        float cx = getWidth() / 2f, cy = getHeight() * 0.5f;
+                        ((FrameLayout) getParent()).addView(new HitEffectView(getContext(), Color.parseColor("#4B0082"), cx, cy));
+                        ((ViewGroup) getParent()).removeView(PurpleLinkView.this);
+                    }
+                    anim.cancel();
+                }
+            });
+            anim.addListener(new AnimatorListenerAdapter() {
+                @Override public void onAnimationEnd(Animator animation) {
+                    if (!isHit && !isMissed) triggerMiss(); // 换区超时，算作Miss
+                }
+            });
+            anim.start();
+        }
+
         @Override protected void onDraw(Canvas canvas) {
             float cx = getWidth() / 2f; Path path = new Path();
             float startY = isTopToBottom ? getHeight() * 0.35f : getHeight() * 0.65f;
@@ -576,11 +615,18 @@ public class GMX_Activity extends AppCompatActivity {
         }
     }
 
-    // 4. 橙色长条音符 (检测边缘触碰 + 缓慢抬手)
+    // 4. 橙色长条音符 (严格全程覆盖判定)
     class OrangeNoteView extends View {
         private Paint paint;
         private float currentX = -1;
         private boolean isLeft;
+
+        private long lastTime = -1;
+        private long dropTimer = 0;
+        private boolean hasStartedTouching = false;
+        private boolean wasTouchingEdge = false;
+        private boolean isMissed = false;
+        private boolean isSuccessCompleted = false;
         private long lastEffectTime = 0;
 
         public OrangeNoteView(android.content.Context context, boolean isLeft) {
@@ -593,10 +639,14 @@ public class GMX_Activity extends AppCompatActivity {
                 float endX = isLeft ? -rectWidth : getWidth() + rectWidth;
 
                 ValueAnimator anim = ValueAnimator.ofFloat(startX, endX);
-                anim.setDuration(2000);
+                anim.setDuration(2500);
                 anim.addUpdateListener(a -> {
+                    if (isMissed || isSuccessCompleted) return;
+
                     currentX = (float) a.getAnimatedValue();
                     long currentTime = a.getCurrentPlayTime();
+                    long dt = (lastTime == -1) ? 0 : (currentTime - lastTime);
+                    lastTime = currentTime;
 
                     float leftEdge = isLeft ? currentX - rectWidth : currentX;
                     float rightEdge = isLeft ? currentX : currentX + rectWidth;
@@ -604,16 +654,32 @@ public class GMX_Activity extends AppCompatActivity {
                     boolean isTouchingEdge = (isLeft) ? (leftEdge <= 0 && rightEdge >= 0) : (rightEdge >= getWidth() && leftEdge <= getWidth());
                     boolean isCorrectRaising = isLeft ? flagRaisingLeft : flagRaisingRight;
 
-                    if (isTouchingEdge && isCorrectRaising) {
-                        if (currentTime - lastEffectTime >= 100) {
-                            lastEffectTime = currentTime;
-                            if (getParent() != null) {
-                                float cy = getHeight() * 0.5f;
-                                float effectX = isLeft ? 0f : getWidth();
-                                ((FrameLayout) getParent()).addView(new HitEffectView(getContext(), Color.parseColor("#FFA500"), effectX, cy));
+                    if (isTouchingEdge) {
+                        hasStartedTouching = true;
+
+                        // 交互断开或一直未按
+                        if (!isCorrectRaising) {
+                            dropTimer += dt;
+                            if (dropTimer > 300) { // 300ms 容错，超过立刻变成半透明(Miss)
+                                triggerMiss();
+                            }
+                        } else {
+                            dropTimer = 0; // 恢复交互，重置容错
+                            if (currentTime - lastEffectTime >= 100) {
+                                lastEffectTime = currentTime;
+                                if (getParent() != null) {
+                                    float cy = getHeight() * 0.5f;
+                                    float effectX = isLeft ? 0f : getWidth();
+                                    ((FrameLayout) getParent()).addView(new HitEffectView(getContext(), Color.parseColor("#FFA500"), effectX, cy));
+                                }
                             }
                         }
+                    } else if (hasStartedTouching) {
+                        // 刚才在碰边缘，现在离开了屏幕，且中途没有被 Miss，视为成功击打
+                        triggerSuccess();
                     }
+
+                    wasTouchingEdge = isTouchingEdge;
                     invalidate();
                 });
                 anim.addListener(new AnimatorListenerAdapter() {
@@ -624,6 +690,22 @@ public class GMX_Activity extends AppCompatActivity {
                 anim.start();
             });
         }
+
+        private void triggerMiss() {
+            isMissed = true;
+            setAlpha(0.3f);
+            invalidate(); // 继续维持在屏幕上，保持半透明移出屏幕
+        }
+
+        private void triggerSuccess() {
+            isSuccessCompleted = true;
+            if (getParent() != null) {
+                float effectX = isLeft ? 0f : getWidth();
+                ((FrameLayout) getParent()).addView(new HitEffectView(getContext(), Color.parseColor("#FFA500"), effectX, getHeight() * 0.5f));
+                ((ViewGroup) getParent()).removeView(this);
+            }
+        }
+
         @Override protected void onDraw(Canvas canvas) {
             if (currentX == -1) currentX = getWidth() / 2f;
             float cy = getHeight() * 0.5f, rectWidth = 400f, rectHeight = 120f;
@@ -632,7 +714,7 @@ public class GMX_Activity extends AppCompatActivity {
         }
     }
 
-    // 5. 黄色短音符 (检测进入底部 + 缓慢抬手)
+    // 5. 黄色短音符
     class YellowNoteView extends View {
         private Paint paint;
         private float currentY = -1;
@@ -654,7 +736,7 @@ public class GMX_Activity extends AppCompatActivity {
                     if (isHit) return;
                     currentY = (float) a.getAnimatedValue();
 
-                    boolean inHitZone = currentY > getHeight() - 300f; // 落到底部300像素内视为判定区
+                    boolean inHitZone = currentY > getHeight() - 300f;
                     boolean isCorrectRaising = isLeft ? flagRaisingLeft : flagRaisingRight;
 
                     if (inHitZone && isCorrectRaising) {
