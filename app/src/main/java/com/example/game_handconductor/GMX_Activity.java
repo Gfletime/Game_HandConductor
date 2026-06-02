@@ -539,6 +539,7 @@ public class GMX_Activity extends AppCompatActivity {
         intent.putExtra("MAX_COMBO", scoreManager.maxCombo);
         intent.putExtra("COMPLETION", (int)((float)scoreManager.hits / scoreManager.totalNotes * 100) + "%");
         intent.putExtra("MISSES",scoreManager.miss);
+        intent.putExtra("SONG_NAME",songName);
         startActivity(intent);
         finish();
     }

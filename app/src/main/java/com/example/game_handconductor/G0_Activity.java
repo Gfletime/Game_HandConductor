@@ -1,6 +1,11 @@
 package com.example.game_handconductor;
 
 import android.content.Intent;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
+import android.graphics.Color;
+import android.graphics.LinearGradient;
+import android.graphics.Shader;
 import android.os.Bundle;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -16,6 +21,9 @@ import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.LinearSnapHelper;
 import androidx.recyclerview.widget.RecyclerView;
 
+import java.io.BufferedReader;
+import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -23,13 +31,15 @@ public class G0_Activity extends AppCompatActivity {
 
     class Song {
         String name;
-        int coverResId;
+        String coverFileName;
+        String betterScore;
         int bestCompletion;
         int maxCombo;
 
-        public Song(String name, int coverResId, int bestCompletion, int maxCombo) {
+        public Song(String name, String coverFileName, String betterScore, int bestCompletion, int maxCombo) {
             this.name = name;
-            this.coverResId = coverResId;
+            this.coverFileName = coverFileName;
+            this.betterScore = betterScore;
             this.bestCompletion = bestCompletion;
             this.maxCombo = maxCombo;
         }
@@ -37,8 +47,10 @@ public class G0_Activity extends AppCompatActivity {
 
     private ImageView ivMainCover;
     private TextView tvSongName, tvBestCompletion, tvMaxCombo;
+    private TextView tvMainRank;
     private List<Song> songList;
     private Song currentSelectedSong;
+    private SongAdapter adapter; // 提升为全局变量以支持动态刷新
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -49,57 +61,42 @@ public class G0_Activity extends AppCompatActivity {
         tvSongName = findViewById(R.id.tv_song_name);
         tvBestCompletion = findViewById(R.id.tv_best_completion);
         tvMaxCombo = findViewById(R.id.tv_max_combo);
+        tvMainRank = findViewById(R.id.tv_main_rank);
+
         Button btnBack = findViewById(R.id.btn_back_title);
         Button btnSettings = findViewById(R.id.btn_goto_settings);
 
         btnBack.setOnClickListener(v -> finish());
         btnSettings.setOnClickListener(v -> startActivity(new Intent(G0_Activity.this, S1_Activity.class)));
 
+        // 初始化空列表与适配器
         songList = new ArrayList<>();
-        // 请替换为你的真实图片资源
-        songList.add(new Song("song1", R.mipmap.ic_launcher, 99, 30));
-        songList.add(new Song("Track 2 - 激流", R.mipmap.ic_launcher, 85, 120));
-        songList.add(new Song("Track 3 - 宁静", R.mipmap.ic_launcher, 100, 55));
-        songList.add(new Song("Track 4 - 终焉", R.mipmap.ic_launcher, 45, 15));
-        songList.add(new Song("Track 5 - 轮回", R.mipmap.ic_launcher, 0, 0));
+        adapter = new SongAdapter(songList);
 
         RecyclerView rvSongList = findViewById(R.id.rv_song_list);
         LinearLayoutManager layoutManager = new LinearLayoutManager(this);
         rvSongList.setLayoutManager(layoutManager);
 
-        // 自动吸附到中心
         LinearSnapHelper snapHelper = new LinearSnapHelper();
         snapHelper.attachToRecyclerView(rvSongList);
-
-        SongAdapter adapter = new SongAdapter(songList);
         rvSongList.setAdapter(adapter);
-
-        if (!songList.isEmpty()) {
-            updateLeftPanel(songList.get(0));
-        }
 
         // ================= 旋转盘滚动与自动更新监听 =================
         rvSongList.addOnScrollListener(new RecyclerView.OnScrollListener() {
             @Override
             public void onScrolled(@NonNull RecyclerView recyclerView, int dx, int dy) {
                 super.onScrolled(recyclerView, dx, dy);
-                // 滑动过程中实时计算弧度形变
                 applyCarouselEffect(recyclerView);
             }
 
             @Override
             public void onScrollStateChanged(@NonNull RecyclerView recyclerView, int newState) {
                 super.onScrollStateChanged(recyclerView, newState);
-
-                // 修改点3：当列表停止滑动时 (SCROLL_STATE_IDLE)
                 if (newState == RecyclerView.SCROLL_STATE_IDLE) {
-                    // 找到当前被吸附在正中间的 View
                     View snapView = snapHelper.findSnapView(layoutManager);
                     if (snapView != null) {
-                        // 获取该 View 对应的数据位置
                         int position = layoutManager.getPosition(snapView);
                         if (position >= 0 && position < songList.size()) {
-                            // 自动更新左侧面板
                             updateLeftPanel(songList.get(position));
                         }
                     }
@@ -107,7 +104,6 @@ public class G0_Activity extends AppCompatActivity {
             }
         });
 
-        // 首次渲染视图时的弧度初始化
         rvSongList.getViewTreeObserver().addOnGlobalLayoutListener(new ViewTreeObserver.OnGlobalLayoutListener() {
             @Override
             public void onGlobalLayout() {
@@ -115,27 +111,95 @@ public class G0_Activity extends AppCompatActivity {
                 rvSongList.getViewTreeObserver().removeOnGlobalLayoutListener(this);
             }
         });
-        // ==============================================================
 
-        // 修改点2：左侧大图点击事件，跳转通用场景 GMX
         ivMainCover.setOnClickListener(v -> {
             if (currentSelectedSong != null) {
                 Intent intent = new Intent(G0_Activity.this, GMX_Activity.class);
-                // 将歌曲名字和封面等信息传递给通用场景
                 intent.putExtra("SONG_NAME", currentSelectedSong.name);
-                intent.putExtra("CSV_NAME", currentSelectedSong.name+".csv");
-                intent.putExtra("SONG_COVER_ID", currentSelectedSong.coverResId);
+                intent.putExtra("CSV_NAME", currentSelectedSong.name + ".csv");
+                intent.putExtra("SONG_COVER_FILE", currentSelectedSong.coverFileName);
                 startActivity(intent);
             }
         });
     }
 
-    /**
-     * 计算每个 Item 距离屏幕中心的偏移量，实现 3D 旋转盘效果
-     */
+    // 【生命周期核心修复】：每次重新回到选歌页面，强制无条件重载本地最新纪录并刷新 UI
+    @Override
+    protected void onResume() {
+        super.onResume();
+        songList.clear();
+        songList.addAll(loadMusicConfig());
+        adapter.notifyDataSetChanged();
+
+        if (!songList.isEmpty()) {
+            // 如果之前有选中的歌曲，保持高亮选中状态，否则默认第一首
+            if (currentSelectedSong != null) {
+                for (Song s : songList) {
+                    if (s.name.equalsIgnoreCase(currentSelectedSong.name)) {
+                        updateLeftPanel(s);
+                        break;
+                    }
+                }
+            } else {
+                updateLeftPanel(songList.get(0));
+            }
+        }
+    }
+
+    private void loadAndBindAssetCover(ImageView imageView, String fileName) {
+        if (fileName == null || fileName.isEmpty() || "default".equalsIgnoreCase(fileName)) {
+            imageView.setImageResource(R.mipmap.ic_launcher);
+        } else {
+            try {
+                InputStream is = getAssets().open("Image/MusicPageFace/" + fileName);
+                Bitmap bitmap = BitmapFactory.decodeStream(is);
+                imageView.setImageBitmap(bitmap);
+                is.close();
+            } catch (Exception e) {
+                e.printStackTrace();
+                imageView.setImageResource(R.mipmap.ic_launcher);
+            }
+        }
+    }
+
+    private List<Song> loadMusicConfig() {
+        List<Song> parsedList = new ArrayList<>();
+        try {
+            java.io.File localCachedFile = new java.io.File(getFilesDir(), "MusicConfig.csv");
+            InputStream is;
+            if (localCachedFile.exists()) {
+                is = openFileInput("MusicConfig.csv");
+            } else {
+                is = getAssets().open("MusicCSV/MusicConfig.csv");
+            }
+
+            BufferedReader reader = new BufferedReader(new InputStreamReader(is));
+            String line;
+            while ((line = reader.readLine()) != null) {
+                if (line.startsWith("Order") || line.trim().isEmpty()) {
+                    continue;
+                }
+                String[] parts = line.split(",");
+                if (parts.length >= 6) {
+                    String musicName = parts[1].trim();
+                    String faceFile = parts[2].trim();
+                    String scoreRank = parts[3].trim();
+                    int completion = Integer.parseInt(parts[4].trim());
+                    int maxCombo = Integer.parseInt(parts[5].trim());
+
+                    parsedList.add(new Song(musicName, faceFile, scoreRank, completion, maxCombo));
+                }
+            }
+            reader.close();
+            is.close();
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        return parsedList;
+    }
+
     private void applyCarouselEffect(RecyclerView rv) {
         float rvCenterY = rv.getHeight() / 2f;
-
         for (int i = 0; i < rv.getChildCount(); i++) {
             View child = rv.getChildAt(i);
             float childCenterY = child.getTop() + child.getHeight() / 2f;
@@ -155,10 +219,53 @@ public class G0_Activity extends AppCompatActivity {
 
     private void updateLeftPanel(Song song) {
         currentSelectedSong = song;
-        ivMainCover.setImageResource(song.coverResId);
+        loadAndBindAssetCover(ivMainCover, song.coverFileName);
+
         tvSongName.setText("当前选择: " + song.name);
         tvBestCompletion.setText("最佳完成度: " + song.bestCompletion + "%");
         tvMaxCombo.setText("最大combo: " + song.maxCombo);
+
+        String rankStr = song.betterScore.toUpperCase().trim();
+        tvMainRank.setText(rankStr);
+        tvMainRank.getPaint().setShader(null);
+
+        switch (rankStr) {
+            case "SSS":
+                float textWidth = tvMainRank.getPaint().measureText("SSS");
+                Shader rainbowShader = new LinearGradient(
+                        0, 0, textWidth, 0,
+                        new int[]{
+                                Color.parseColor("#FF1493"),
+                                Color.parseColor("#FF4500"),
+                                Color.parseColor("#FFD700"),
+                                Color.parseColor("#00FF00"),
+                                Color.parseColor("#00FFFF"),
+                                Color.parseColor("#0000FF"),
+                                Color.parseColor("#8A2BE2")
+                        },
+                        null, Shader.TileMode.CLAMP
+                );
+                tvMainRank.getPaint().setShader(rainbowShader);
+                tvMainRank.setTextColor(Color.RED);
+                break;
+            case "S":
+                tvMainRank.setTextColor(Color.parseColor("#FFD700"));
+                break;
+            case "A":
+                tvMainRank.setTextColor(Color.parseColor("#9932CC"));
+                break;
+            case "B":
+                tvMainRank.setTextColor(Color.parseColor("#1E90FF"));
+                break;
+            case "C":
+                tvMainRank.setTextColor(Color.parseColor("#32CD32"));
+                break;
+            case "D":
+            default:
+                tvMainRank.setTextColor(Color.parseColor("#808080"));
+                break;
+        }
+        tvMainRank.invalidate();
     }
 
     class SongAdapter extends RecyclerView.Adapter<SongAdapter.SongViewHolder> {
@@ -178,12 +285,13 @@ public class G0_Activity extends AppCompatActivity {
         @Override
         public void onBindViewHolder(@NonNull SongViewHolder holder, int position) {
             Song song = list.get(position);
-            holder.ivItemCover.setImageResource(song.coverResId);
+            loadAndBindAssetCover(holder.ivItemCover, song.coverFileName);
 
             holder.itemView.setOnClickListener(v -> {
-                // 点击右侧小图时，不仅更新左侧，还让 RecyclerView 平滑滚动将该项居中
                 updateLeftPanel(song);
-                ((RecyclerView) holder.itemView.getParent()).smoothScrollToPosition(position);
+                if (holder.itemView.getParent() instanceof RecyclerView) {
+                    ((RecyclerView) holder.itemView.getParent()).smoothScrollToPosition(position);
+                }
             });
         }
 
