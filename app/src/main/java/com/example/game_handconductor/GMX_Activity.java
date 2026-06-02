@@ -78,7 +78,7 @@ public class GMX_Activity extends AppCompatActivity {
     private FrameLayout noteContainer;
     private String songName;
     private int songCoverId;
-    private int currentMaxCombo = 21;
+    //private int currentMaxCombo = 0;
 
     // ================= 摄像头与识别 =================
     private HandLandmarker handLandmarker;
@@ -183,7 +183,7 @@ public class GMX_Activity extends AppCompatActivity {
         noteContainer = findViewById(R.id.note_container);
         viewFinder = findViewById(R.id.viewFinder);
 
-        tvMaxCombo.setText("最大连击数 " + currentMaxCombo);
+        tvMaxCombo.setText("最大连击数 " + scoreManager.maxCombo);
 
         btnReturn.setOnClickListener(v -> {
             if (progressAnimator != null) progressAnimator.cancel();
@@ -323,13 +323,16 @@ public class GMX_Activity extends AppCompatActivity {
     private void initNoteTimeline() {
         noteTimeline.clear();
 
-        // 1. 调用重构后的加载器读取全新结构
         ChartData chart = ChartLoader.loadChart(this, "song1.csv");
-
-        // 2. 将表格中正确读取的音符总数动态赋值给计分管理器
         scoreManager.totalNotes = chart.totalNotes;
 
-        // 3. 严格不省略地解析所有音符分支
+        // 获取绝对物理像素宽度，作为唯一的基准
+        int screenWidth = getResources().getDisplayMetrics().widthPixels;
+        float centerX = screenWidth / 2f;
+
+        float orangeSpeed = 0.6f;
+        long preTouchDuration = (long) (centerX / orangeSpeed);
+
         for (String[] row : chart.noteRows) {
             int type = Integer.parseInt(row[1]);
             long start = Long.parseLong(row[2]);
@@ -351,28 +354,35 @@ public class GMX_Activity extends AppCompatActivity {
                     break;
                 case 3: // 紫连接键
                     final PurpleNoteView targetNote = lastPurpleNote;
-                    PurpleLinkView link = new PurpleLinkView(this, true);
+
+                    boolean calculatedDirection = true;
+                    if (targetNote != null) {
+                        calculatedDirection = targetNote.isTop();
+                    }
+
+                    final boolean finalDirection = calculatedDirection;
+                    PurpleLinkView link = new PurpleLinkView(this, finalDirection);
+
                     if (targetNote != null) {
                         targetNote.setLinkView(link);
                     }
                     noteTimeline.add(new NoteEvent(start, () -> noteContainer.addView(link)));
                     break;
-                case 4: // 左侧橙键
-                    noteTimeline.add(new NoteEvent(start, () -> noteContainer.addView(new OrangeNoteView(this, true))));
+                case 4: // 左侧橙键 (向构造函数强行注入绝对基准 screenWidth)
+                    noteTimeline.add(new NoteEvent(start - preTouchDuration, () -> noteContainer.addView(new OrangeNoteView(this, true, life, screenWidth))));
                     break;
-                case 5: // 右侧橙键
-                    noteTimeline.add(new NoteEvent(start, () -> noteContainer.addView(new OrangeNoteView(this, false))));
+                case 5: // 右侧橙键 (向构造函数强行注入绝对基准 screenWidth)
+                    noteTimeline.add(new NoteEvent(start - preTouchDuration, () -> noteContainer.addView(new OrangeNoteView(this, false, life, screenWidth))));
                     break;
                 case 6: // 左侧黄键
-                    noteTimeline.add(new NoteEvent(start, () -> noteContainer.addView(new YellowNoteView(this, true))));
+                    noteTimeline.add(new NoteEvent(start - life, () -> noteContainer.addView(new YellowNoteView(this, true, life))));
                     break;
                 case 7: // 右侧黄键
-                    noteTimeline.add(new NoteEvent(start, () -> noteContainer.addView(new YellowNoteView(this, false))));
+                    noteTimeline.add(new NoteEvent(start - life, () -> noteContainer.addView(new YellowNoteView(this, false, life))));
                     break;
             }
         }
 
-        // 4. 正确读取表格中歌曲长度信息(单位秒)，乘以 1000 转换为毫秒传给进度条动画器
         setupProgressAnimator(chart.songLengthSeconds * 1000);
     }
 
@@ -515,6 +525,7 @@ public class GMX_Activity extends AppCompatActivity {
 
     // 2. 紫色音符 (长按交互，动态时间与严格容错)
     // 2. 紫色音符 (修复：确保无论是击打成功还是 Miss，在 t 时间结束时必然移除)
+    // 2. 紫色音符 (长按交互，动态时间与严格容错)
     class PurpleNoteView extends View {
         private Paint innerPaint, strokePaint;
         private float sweepAngle = 0;
@@ -543,7 +554,6 @@ public class GMX_Activity extends AppCompatActivity {
                 ValueAnimator anim = ValueAnimator.ofFloat(0, 1f);
                 anim.setDuration(t);
 
-                // 【核心补全】：恢复被误删的手势判定与动画重绘监听器
                 anim.addUpdateListener(a -> {
                     if (isMissed || isSuccessCompleted) return;
                     long currentTime = a.getCurrentPlayTime();
@@ -578,7 +588,7 @@ public class GMX_Activity extends AppCompatActivity {
                             }
                         }
                     }
-                    invalidate(); // 强制刷新画面，让进度条动起来
+                    invalidate();
                 });
 
                 anim.addListener(new AnimatorListenerAdapter() {
@@ -586,10 +596,9 @@ public class GMX_Activity extends AppCompatActivity {
                         if (getParent() != null) {
                             if (!isMissed && hitStartTime != -1) {
                                 isSuccessCompleted = true;
-                                scoreManager.addHit(); // 【击打成功】
+                                scoreManager.addHit();
                                 if (linkView != null) linkView.activate();
                             } else if (!isMissed && hitStartTime == -1) {
-                                // 【新增兜底】：如果时间到了玩家一次都没压中，强制触发 Miss 判定以清理连接线
                                 triggerMiss();
                             }
                             ((ViewGroup) getParent()).removeView(PurpleNoteView.this);
@@ -603,26 +612,36 @@ public class GMX_Activity extends AppCompatActivity {
         private void triggerMiss() {
             if (isMissed) return;
             isMissed = true;
-            scoreManager.resetCombo(); // 【漏键中断】
+            scoreManager.resetCombo();
             setAlpha(0.3f);
             invalidate();
             if (linkView != null) linkView.triggerMiss();
         }
 
+        // 【核心排查点】：此方法必须存在且为 public 权限，参数类型必须为 PurpleLinkView
         public void setLinkView(PurpleLinkView link) {
             this.linkView = link;
+        }
+
+        public boolean isTop() {
+            return this.isTop;
         }
 
         @Override protected void onDraw(Canvas canvas) {
             float cx = getWidth() / 2f; float cy = isTop ? getHeight() * 0.25f : getHeight() * 0.75f;
             float radius = 90f;
+
             canvas.drawCircle(cx, cy, radius, innerPaint);
-            RectF rect = new RectF(cx - radius, cy - radius, cx + radius, cy + radius);
-            canvas.drawArc(rect, -90, sweepAngle, false, strokePaint);
+
+            if (!isMissed) {
+                RectF rect = new RectF(cx - radius, cy - radius, cx + radius, cy + radius);
+                canvas.drawArc(rect, -90, sweepAngle, false, strokePaint);
+            }
         }
     }
 
     // 3. 紫色连接线 (前置唤醒逻辑)
+    // 3. 紫色连接线 (修复未挂载时提前 Miss 残留屏幕的 BUG 类)
     class PurpleLinkView extends View {
         private Paint paint;
         private boolean isTopToBottom;
@@ -636,12 +655,29 @@ public class GMX_Activity extends AppCompatActivity {
             paint.setStyle(Paint.Style.STROKE); paint.setStrokeJoin(Paint.Join.ROUND); paint.setStrokeCap(Paint.Cap.ROUND); paint.setAntiAlias(true);
         }
 
+        // 【核心新增检测修复点】：当视图被系统真正挂载到窗口时触发
+        @Override
+        protected void onAttachedToWindow() {
+            super.onAttachedToWindow();
+            // 如果在被真正 addView 进屏幕前，前导键就已经触发了 triggerMiss 并把当前变量改为了 true
+            // 说明错过了前面的延迟销毁，在这里刚一冒头就必须立刻执行安全自毁，绝不留在屏幕中央卡死
+            if (isMissed) {
+                post(() -> {
+                    if (getParent() != null) {
+                        ((ViewGroup) getParent()).removeView(PurpleLinkView.this);
+                    }
+                });
+            }
+        }
+
         public void triggerMiss() {
             if (isHit) return;
             isMissed = true;
-            scoreManager.resetCombo(); // 【漏键中断】
+            scoreManager.resetCombo();
             setAlpha(0.3f);
             invalidate();
+
+            // 只有在已经挂载到容器里的情况下，延时自毁才生效
             new Handler(Looper.getMainLooper()).postDelayed(() -> {
                 if (getParent() != null) ((ViewGroup) getParent()).removeView(this);
             }, 500);
@@ -657,7 +693,7 @@ public class GMX_Activity extends AppCompatActivity {
                 boolean isZoneChanged = isTopToBottom ? flagPointingBottom : flagPointingTop;
                 if (isZoneChanged) {
                     isHit = true;
-                    scoreManager.addHit(); // 【击打成功】
+                    scoreManager.addHit();
                     if (getParent() != null) {
                         float cx = getWidth() / 2f, cy = getHeight() * 0.5f;
                         ((FrameLayout) getParent()).addView(new HitEffectView(getContext(), Color.parseColor("#4B0082"), cx, cy));
@@ -692,6 +728,12 @@ public class GMX_Activity extends AppCompatActivity {
     }
 
     // 4. 橙色长条音符 (严格全程覆盖判定)
+    // 4. 橙色长条音符 (严格时间与速度矩阵控制)
+    // 4. 橙色长条音符 (逐渐从中线冒头机制)
+    // 4. 橙色长条音符 (精准两阶段时间控制，支持 Miss 后继续移动)
+    // 4. 橙色长条音符 (全期绝对匀速控制类)
+    // 4. 橙色长条音符 (统一高速匀速，长度受 LivingLife 制约类)
+    // 4. 橙色长条音符 (完全不省略补全类)
     class OrangeNoteView extends View {
         private Paint paint;
         private float currentX = -1;
@@ -699,75 +741,86 @@ public class GMX_Activity extends AppCompatActivity {
 
         private long lastTime = -1;
         private long dropTimer = 0;
-        private boolean hasStartedTouching = false; // 是否触发过开始判定
         private boolean isMissed = false;
-        private boolean isSuccessStarted = false; // 开始判定锁
-        private boolean isSuccessCompleted = false; // 结束判定锁
+        private boolean isSuccessStarted = false;
+        private boolean isSuccessCompleted = false;
         private long lastEffectTime = 0;
+        private long lifeTime;
+        private int screenWidth;
 
-        public OrangeNoteView(android.content.Context context, boolean isLeft) {
+        // 构造函数重构：强行接收外界统一的 screenWidth 像素值
+        public OrangeNoteView(android.content.Context context, boolean isLeft, long lifeTime, int screenWidth) {
             super(context);
             this.isLeft = isLeft;
+            this.lifeTime = lifeTime;
+            this.screenWidth = screenWidth;
             paint = new Paint(); paint.setColor(Color.parseColor("#FFA500"));
 
             post(() -> {
-                float startX = getWidth() / 2f, rectWidth = 400f;
-                float endX = isLeft ? -rectWidth : getWidth() + rectWidth;
+                float centerX = screenWidth / 2f;
+                float orangeSpeed = 0.6f;
+                float rectWidth = lifeTime * orangeSpeed;
+                long preTouchDuration = (long) (centerX / orangeSpeed);
+
+                // 完全基于外部强对齐的绝对坐标系
+                float startX = isLeft ? (centerX + rectWidth) : (centerX - rectWidth);
+                float endX = isLeft ? 0f : (float) screenWidth;
 
                 ValueAnimator anim = ValueAnimator.ofFloat(startX, endX);
-                anim.setDuration(2500);
-                anim.addUpdateListener(a -> {
-                    if (isMissed || isSuccessCompleted) return;
+                anim.setDuration(preTouchDuration + lifeTime);
+                anim.setInterpolator(new android.view.animation.LinearInterpolator());
 
+                anim.addUpdateListener(a -> {
                     currentX = (float) a.getAnimatedValue();
                     long currentTime = a.getCurrentPlayTime();
-                    long dt = (lastTime == -1) ? 0 : (currentTime - lastTime);
-                    lastTime = currentTime;
 
-                    float leftEdge = isLeft ? currentX - rectWidth : currentX;
-                    float rightEdge = isLeft ? currentX : currentX + rectWidth;
+                    if (!isMissed && !isSuccessCompleted) {
+                        long dt = (lastTime == -1) ? 0 : (currentTime - lastTime);
+                        lastTime = currentTime;
 
-                    boolean isTouchingEdge = (isLeft) ? (leftEdge <= 0 && rightEdge >= 0) : (rightEdge >= getWidth() && leftEdge <= getWidth());
-                    boolean isCorrectRaising = isLeft ? flagRaisingLeft : flagRaisingRight;
+                        float leftEdge = isLeft ? currentX - rectWidth : currentX;
+                        float rightEdge = isLeft ? currentX : currentX + rectWidth;
 
-                    if (isTouchingEdge) {
-                        // 1. 开始判定逻辑
-                        if (!isSuccessStarted) {
-                            if (isCorrectRaising) {
-                                isSuccessStarted = true;
-                                scoreManager.addHit(); // 【得分点1：开始击打】
+                        boolean isTouchingEdge = (isLeft) ? (leftEdge <= 0 && rightEdge >= 0) : (rightEdge >= screenWidth && leftEdge <= screenWidth);
+                        boolean isCorrectRaising = isLeft ? flagRaisingLeft : flagRaisingRight;
+
+                        if (isTouchingEdge) {
+                            if (!isSuccessStarted) {
+                                if (isCorrectRaising) {
+                                    isSuccessStarted = true;
+                                    scoreManager.addHit();
+                                } else {
+                                    dropTimer += dt;
+                                    if (dropTimer > 300) triggerMiss();
+                                }
                             } else {
-                                // 在接触边缘但未做手势时，给一定容错时间后Miss
-                                dropTimer += dt;
-                                if (dropTimer > 300) triggerMiss();
-                            }
-                        } else {
-                            // 2. 持续击打逻辑
-                            if (!isCorrectRaising) {
-                                dropTimer += dt;
-                                if (dropTimer > 300) triggerMiss(); // 【中断点：中途断开】
-                            } else {
-                                dropTimer = 0;
-                                if (currentTime - lastEffectTime >= 100) {
-                                    lastEffectTime = currentTime;
-                                    if (getParent() != null) {
-                                        float cy = getHeight() * 0.5f;
-                                        float effectX = isLeft ? 0f : getWidth();
-                                        ((FrameLayout) getParent()).addView(new HitEffectView(getContext(), Color.parseColor("#FFA500"), effectX, cy));
+                                if (!isCorrectRaising) {
+                                    dropTimer += dt;
+                                    if (dropTimer > 300) triggerMiss();
+                                } else {
+                                    dropTimer = 0;
+                                    if (currentTime - lastEffectTime >= 100) {
+                                        lastEffectTime = currentTime;
+                                        if (getParent() != null) {
+                                            float cy = getHeight() * 0.5f;
+                                            float effectX = isLeft ? 0f : (float) screenWidth;
+                                            ((FrameLayout) getParent()).addView(new HitEffectView(getContext(), Color.parseColor("#FFA500"), effectX, cy));
+                                        }
                                     }
                                 }
                             }
                         }
-                    } else if (isSuccessStarted) {
-                        // 3. 离开边缘，判定完成
-                        triggerSuccessEnd(); // 【得分点2：完成击打】
                     }
                     invalidate();
                 });
                 anim.addListener(new AnimatorListenerAdapter() {
                     @Override public void onAnimationEnd(Animator animation) {
                         if (!isMissed && !isSuccessCompleted) {
-                            scoreManager.resetCombo(); // 【中断点：完全没碰】
+                            if (isSuccessStarted) {
+                                triggerSuccessEnd();
+                            } else {
+                                scoreManager.resetCombo();
+                            }
                         }
                         if (getParent() != null) ((ViewGroup) getParent()).removeView(OrangeNoteView.this);
                     }
@@ -779,7 +832,7 @@ public class GMX_Activity extends AppCompatActivity {
         private void triggerMiss() {
             if (isMissed) return;
             isMissed = true;
-            scoreManager.resetCombo(); // 【中断点：连击重置】
+            scoreManager.resetCombo();
             setAlpha(0.3f);
             invalidate();
         }
@@ -787,45 +840,67 @@ public class GMX_Activity extends AppCompatActivity {
         private void triggerSuccessEnd() {
             if (isSuccessCompleted) return;
             isSuccessCompleted = true;
-            scoreManager.addHit(); // 【得分点2：结束击打】
+            scoreManager.addHit();
             if (getParent() != null) {
-                float effectX = isLeft ? 0f : getWidth();
+                float effectX = isLeft ? 0f : (float) screenWidth;
                 ((FrameLayout) getParent()).addView(new HitEffectView(getContext(), Color.parseColor("#FFA500"), effectX, getHeight() * 0.5f));
-                ((ViewGroup) getParent()).removeView(this);
             }
         }
 
         @Override protected void onDraw(Canvas canvas) {
-            if (currentX == -1) currentX = getWidth() / 2f;
-            float cy = getHeight() * 0.5f, rectWidth = 400f, rectHeight = 120f;
+            float centerX = screenWidth / 2f;
+            float orangeSpeed = 0.6f;
+            float rectWidth = lifeTime * orangeSpeed;
+
+            if (currentX == -1) {
+                currentX = isLeft ? (centerX + rectWidth) : (centerX - rectWidth);
+            }
+
+            canvas.save();
+            if (isLeft) {
+                canvas.clipRect(0f, 0f, centerX, (float) getHeight());
+            } else {
+                canvas.clipRect(centerX, 0f, (float) screenWidth, (float) getHeight());
+            }
+
+            float cy = getHeight() * 0.5f, rectHeight = 120f;
             float left = isLeft ? currentX - rectWidth : currentX;
             canvas.drawRect(left, cy - rectHeight/2, left + rectWidth, cy + rectHeight/2, paint);
+            canvas.restore();
         }
     }
 
     // 5. 黄色短音符
+    // 5. 黄色短音符 (准时触线打击机制)
     class YellowNoteView extends View {
         private Paint paint;
         private float currentY = -1;
         private boolean isLeft;
         private boolean isHit = false;
+        private long lifeTime;
 
-        public YellowNoteView(android.content.Context context, boolean isLeft) {
+        public YellowNoteView(android.content.Context context, boolean isLeft, long lifeTime) {
             super(context);
             this.isLeft = isLeft;
+            this.lifeTime = lifeTime;
             paint = new Paint(); paint.setColor(Color.YELLOW); paint.setStrokeWidth(40); paint.setStrokeCap(Paint.Cap.ROUND);
 
             post(() -> {
-                float startY = getHeight() * 0.25f;
-                float endY = getHeight() + 100f;
+                // 起点为顶部0，触线边缘设为屏幕底线 getHeight()
+                float startY = 0f;
+                float targetHitLine = getHeight();
 
-                ValueAnimator anim = ValueAnimator.ofFloat(startY, endY);
-                anim.setDuration(1200);
+                ValueAnimator anim = ValueAnimator.ofFloat(startY, targetHitLine * 1.2f);
+                // 触线时间为 lifeTime，总运行距离为 1.2倍，因此总时间按等比线性扩充
+                anim.setDuration((long) (lifeTime * 1.2f));
+                anim.setInterpolator(new android.view.animation.LinearInterpolator()); // 必须线性匀速
+
                 anim.addUpdateListener(a -> {
                     if (isHit) return;
                     currentY = (float) a.getAnimatedValue();
 
-                    boolean inHitZone = currentY > getHeight() - 300f;
+                    // 判定窗口：在恰好触及边缘线的前后 200 像素区间内开放交互
+                    boolean inHitZone = currentY > getHeight() - 200f && currentY < getHeight() + 100f;
                     boolean isCorrectRaising = isLeft ? flagRaisingLeft : flagRaisingRight;
 
                     if (inHitZone && isCorrectRaising) {
@@ -843,16 +918,16 @@ public class GMX_Activity extends AppCompatActivity {
                 anim.addListener(new AnimatorListenerAdapter() {
                     @Override public void onAnimationEnd(Animator animation) {
                         if (!isHit) {
-                            scoreManager.resetCombo(); // 【重要】在此处添加漏键中断
+                            scoreManager.resetCombo(); // 动画结束仍未击中，断连
                         }
-                        if (!isHit && getParent() != null) ((ViewGroup) getParent()).removeView(YellowNoteView.this);
+                        if (getParent() != null) ((ViewGroup) getParent()).removeView(YellowNoteView.this);
                     }
                 });
                 anim.start();
             });
         }
         @Override protected void onDraw(Canvas canvas) {
-            if (currentY == -1) currentY = getHeight() * 0.25f;
+            if (currentY == -1) currentY = 0f;
             float cx = isLeft ? getWidth() * 0.25f : getWidth() * 0.75f;
             float lineWidth = 150f;
             canvas.drawLine(cx - lineWidth/2, currentY, cx + lineWidth/2, currentY, paint);
