@@ -183,7 +183,7 @@ public class GMX_Activity extends AppCompatActivity {
         noteContainer = findViewById(R.id.note_container);
         viewFinder = findViewById(R.id.viewFinder);
 
-        tvMaxCombo.setText("最大连击数 " + scoreManager.maxCombo);
+        tvMaxCombo.setText("连击数: " + scoreManager.currentCombo);
 
         btnReturn.setOnClickListener(v -> {
             if (progressAnimator != null) progressAnimator.cancel();
