@@ -54,7 +54,7 @@ public class GMX_Activity extends AppCompatActivity {
     private class ScoreManager {
         int currentCombo = 0, maxCombo = 0, hits = 0,miss=0;
         //public int totalNote=0;
-        final int totalNotes = 15;
+        int totalNotes = 15;
 
         void addHit() {
             hits++;
@@ -318,33 +318,62 @@ public class GMX_Activity extends AppCompatActivity {
         flagRaisingRight = currentRightRaise;
     }
 
+    private PurpleNoteView lastPurpleNote = null;
     // ================= 游戏进度与音符生成 =================
     private void initNoteTimeline() {
         noteTimeline.clear();
-        long t = 1000;
 
-        noteTimeline.add(new NoteEvent(t, () -> noteContainer.addView(new BlueNoteView(this)))); t += 2000;
-        noteTimeline.add(new NoteEvent(t, () -> noteContainer.addView(new PurpleNoteView(this, true, null)))); t += 6000; // 留出5s寿命空间
+        // 1. 调用重构后的加载器读取全新结构
+        ChartData chart = ChartLoader.loadChart(this, "song1.csv");
 
-        noteTimeline.add(new NoteEvent(t, () -> {
-            PurpleLinkView link = new PurpleLinkView(this, true);
-            noteContainer.addView(link);
-            noteContainer.addView(new PurpleNoteView(this, true, link));
-        })); t += 6000;
+        // 2. 将表格中正确读取的音符总数动态赋值给计分管理器
+        scoreManager.totalNotes = chart.totalNotes;
 
-        noteTimeline.add(new NoteEvent(t, () -> noteContainer.addView(new PurpleNoteView(this, false, null)))); t += 6000;
-        noteTimeline.add(new NoteEvent(t, () -> noteContainer.addView(new OrangeNoteView(this, true)))); t += 2500;
-        noteTimeline.add(new NoteEvent(t, () -> noteContainer.addView(new OrangeNoteView(this, false)))); t += 2500;
+        // 3. 严格不省略地解析所有音符分支
+        for (String[] row : chart.noteRows) {
+            int type = Integer.parseInt(row[1]);
+            long start = Long.parseLong(row[2]);
+            long life = Long.parseLong(row[3]);
 
-        noteTimeline.add(new NoteEvent(t, () -> noteContainer.addView(new YellowNoteView(this, true)))); t += 500;
-        noteTimeline.add(new NoteEvent(t, () -> noteContainer.addView(new YellowNoteView(this, true)))); t += 500;
-        noteTimeline.add(new NoteEvent(t, () -> noteContainer.addView(new YellowNoteView(this, true)))); t += 1000;
+            switch (type) {
+                case 0: // 蓝键
+                    noteTimeline.add(new NoteEvent(start, () -> noteContainer.addView(new BlueNoteView(this))));
+                    break;
+                case 1: // 上紫键位
+                    final PurpleNoteView topPurple = new PurpleNoteView(this, true, null, life);
+                    lastPurpleNote = topPurple;
+                    noteTimeline.add(new NoteEvent(start, () -> noteContainer.addView(topPurple)));
+                    break;
+                case 2: // 下紫键位
+                    final PurpleNoteView bottomPurple = new PurpleNoteView(this, false, null, life);
+                    lastPurpleNote = bottomPurple;
+                    noteTimeline.add(new NoteEvent(start, () -> noteContainer.addView(bottomPurple)));
+                    break;
+                case 3: // 紫连接键
+                    final PurpleNoteView targetNote = lastPurpleNote;
+                    PurpleLinkView link = new PurpleLinkView(this, true);
+                    if (targetNote != null) {
+                        targetNote.setLinkView(link);
+                    }
+                    noteTimeline.add(new NoteEvent(start, () -> noteContainer.addView(link)));
+                    break;
+                case 4: // 左侧橙键
+                    noteTimeline.add(new NoteEvent(start, () -> noteContainer.addView(new OrangeNoteView(this, true))));
+                    break;
+                case 5: // 右侧橙键
+                    noteTimeline.add(new NoteEvent(start, () -> noteContainer.addView(new OrangeNoteView(this, false))));
+                    break;
+                case 6: // 左侧黄键
+                    noteTimeline.add(new NoteEvent(start, () -> noteContainer.addView(new YellowNoteView(this, true))));
+                    break;
+                case 7: // 右侧黄键
+                    noteTimeline.add(new NoteEvent(start, () -> noteContainer.addView(new YellowNoteView(this, false))));
+                    break;
+            }
+        }
 
-        noteTimeline.add(new NoteEvent(t, () -> noteContainer.addView(new YellowNoteView(this, false)))); t += 500;
-        noteTimeline.add(new NoteEvent(t, () -> noteContainer.addView(new YellowNoteView(this, false)))); t += 500;
-        noteTimeline.add(new NoteEvent(t, () -> noteContainer.addView(new YellowNoteView(this, false)))); t += 3000;
-
-        setupProgressAnimator((int) t);
+        // 4. 正确读取表格中歌曲长度信息(单位秒)，乘以 1000 转换为毫秒传给进度条动画器
+        setupProgressAnimator(chart.songLengthSeconds * 1000);
     }
 
     private void setupProgressAnimator(int durationMs) {
@@ -492,24 +521,29 @@ public class GMX_Activity extends AppCompatActivity {
         private boolean isTop;
         private PurpleLinkView linkView;
 
-        private long t = 5000; // 寿命设定为5s
-        private long m = 2000; // 容错设定为2s
+        private long t;
+        private long m;
         private long hitStartTime = -1;
         private long dropStartTime = -1;
         private boolean isMissed = false;
         private boolean isSuccessCompleted = false;
         private long lastEffectTime = 0;
 
-        public PurpleNoteView(android.content.Context context, boolean isTop, PurpleLinkView link) {
+        public PurpleNoteView(android.content.Context context, boolean isTop, PurpleLinkView link, long lifeTime) {
             super(context);
             this.isTop = isTop;
             this.linkView = link;
+            this.t = lifeTime;
+            this.m = (long) (lifeTime * 0.8f);
+
             innerPaint = new Paint(); innerPaint.setColor(Color.parseColor("#9932CC")); innerPaint.setAntiAlias(true);
             strokePaint = new Paint(); strokePaint.setColor(Color.parseColor("#4B0082")); strokePaint.setStyle(Paint.Style.STROKE); strokePaint.setStrokeWidth(25); strokePaint.setAntiAlias(true);
 
             post(() -> {
                 ValueAnimator anim = ValueAnimator.ofFloat(0, 1f);
                 anim.setDuration(t);
+
+                // 【核心补全】：恢复被误删的手势判定与动画重绘监听器
                 anim.addUpdateListener(a -> {
                     if (isMissed || isSuccessCompleted) return;
                     long currentTime = a.getCurrentPlayTime();
@@ -544,16 +578,19 @@ public class GMX_Activity extends AppCompatActivity {
                             }
                         }
                     }
-                    invalidate();
+                    invalidate(); // 强制刷新画面，让进度条动起来
                 });
+
                 anim.addListener(new AnimatorListenerAdapter() {
                     @Override public void onAnimationEnd(Animator animation) {
-                        // 【核心修复】：无论是否Miss，只要动画结束(t时间到)，必须移除
                         if (getParent() != null) {
                             if (!isMissed && hitStartTime != -1) {
                                 isSuccessCompleted = true;
                                 scoreManager.addHit(); // 【击打成功】
                                 if (linkView != null) linkView.activate();
+                            } else if (!isMissed && hitStartTime == -1) {
+                                // 【新增兜底】：如果时间到了玩家一次都没压中，强制触发 Miss 判定以清理连接线
+                                triggerMiss();
                             }
                             ((ViewGroup) getParent()).removeView(PurpleNoteView.this);
                         }
@@ -570,7 +607,10 @@ public class GMX_Activity extends AppCompatActivity {
             setAlpha(0.3f);
             invalidate();
             if (linkView != null) linkView.triggerMiss();
-            // Miss 后，我们不需要立即 removeView，让 ValueAnimator 跑完 t 时间后由 onAnimationEnd 统一移除
+        }
+
+        public void setLinkView(PurpleLinkView link) {
+            this.linkView = link;
         }
 
         @Override protected void onDraw(Canvas canvas) {
@@ -596,25 +636,22 @@ public class GMX_Activity extends AppCompatActivity {
             paint.setStyle(Paint.Style.STROKE); paint.setStrokeJoin(Paint.Join.ROUND); paint.setStrokeCap(Paint.Cap.ROUND); paint.setAntiAlias(true);
         }
 
-        // 被父节点紫键 Miss 时调用
         public void triggerMiss() {
             if (isHit) return;
             isMissed = true;
             scoreManager.resetCombo(); // 【漏键中断】
             setAlpha(0.3f);
             invalidate();
-            // 在惩罚结束后自然消失
             new Handler(Looper.getMainLooper()).postDelayed(() -> {
                 if (getParent() != null) ((ViewGroup) getParent()).removeView(this);
             }, 500);
         }
 
-        // 只有父节点紫键成功走完 t 时间，才会激活此滑动判定
         public void activate() {
             if (isMissed) return;
 
             ValueAnimator anim = ValueAnimator.ofFloat(0, 1);
-            anim.setDuration(800); // 给予玩家非常宽裕的 800ms 去换区滑动
+            anim.setDuration(800);
             anim.addUpdateListener(a -> {
                 if (isHit || isMissed) return;
                 boolean isZoneChanged = isTopToBottom ? flagPointingBottom : flagPointingTop;
@@ -631,7 +668,7 @@ public class GMX_Activity extends AppCompatActivity {
             });
             anim.addListener(new AnimatorListenerAdapter() {
                 @Override public void onAnimationEnd(Animator animation) {
-                    if (!isHit && !isMissed) triggerMiss(); // 换区超时，算作Miss
+                    if (!isHit && !isMissed) triggerMiss();
                 }
             });
             anim.start();
