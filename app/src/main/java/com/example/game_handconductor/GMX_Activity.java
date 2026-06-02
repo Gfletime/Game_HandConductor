@@ -98,8 +98,8 @@ public class GMX_Activity extends AppCompatActivity {
     class NoteEvent {
         long spawnTimeMs;
         Runnable action;
-        boolean isSpawned = false;
-        NoteEvent(long time, Runnable action) { this.spawnTimeMs = time; this.action = action; }
+        public boolean isTriggered = false; // 核心修复：防止动画更新时音符被重复 new 出来
+        NoteEvent(long time, Runnable action) { this.spawnTimeMs = time; this.action = action;this.isTriggered = false; }
     }
     private List<NoteEvent> noteTimeline = new ArrayList<>();
 
@@ -194,7 +194,11 @@ public class GMX_Activity extends AppCompatActivity {
             finish();
         });
 
-        btnSettings.setOnClickListener(v -> startActivity(new Intent(GMX_Activity.this, S1_Activity.class)));
+        btnSettings.setOnClickListener(v ->
+        {
+            togglePauseGame();
+            startActivity(new Intent(GMX_Activity.this, S1_Activity.class));
+        });
 
         cameraExecutor = Executors.newSingleThreadExecutor();
         checkCameraPermissionAndInit();
@@ -323,6 +327,63 @@ public class GMX_Activity extends AppCompatActivity {
     private android.media.MediaPlayer mediaPlayer = null;
     private PurpleNoteView lastPurpleNote = null;
 
+    private boolean isGamePaused = false;
+
+    // === 暂停状态一键切换总入口 ===
+// === 暂停状态一键切换总入口 ===
+    private void togglePauseGame() {
+        if (isGamePaused) {
+            resumeGame();
+        } else {
+            pauseGame();
+        }
+    }
+
+    private void pauseGame() {
+        if (isGamePaused) return;
+        isGamePaused = true;
+
+        if (mediaPlayer != null && mediaPlayer.isPlaying()) {
+            mediaPlayer.pause();
+        }
+        if (progressAnimator != null && progressAnimator.isRunning()) {
+            progressAnimator.pause();
+        }
+
+        if (noteContainer != null) {
+            for (int i = 0; i < noteContainer.getChildCount(); i++) {
+                android.view.View child = noteContainer.getChildAt(i);
+                if (child instanceof BlueNoteView) ((BlueNoteView) child).pauseAnimation();
+                if (child instanceof PurpleNoteView) ((PurpleNoteView) child).pauseAnimation();
+                if (child instanceof PurpleLinkView) ((PurpleLinkView) child).pauseAnimation();
+                if (child instanceof OrangeNoteView) ((OrangeNoteView) child).pauseAnimation();
+                if (child instanceof YellowNoteView) ((YellowNoteView) child).pauseAnimation();
+            }
+        }
+    }
+
+    private void resumeGame() {
+        if (!isGamePaused) return;
+        isGamePaused = false;
+
+        if (mediaPlayer != null) {
+            mediaPlayer.start();
+        }
+        if (progressAnimator != null && progressAnimator.isPaused()) {
+            progressAnimator.resume();
+        }
+
+        if (noteContainer != null) {
+            for (int i = 0; i < noteContainer.getChildCount(); i++) {
+                android.view.View child = noteContainer.getChildAt(i);
+                if (child instanceof BlueNoteView) ((BlueNoteView) child).resumeAnimation();
+                if (child instanceof PurpleNoteView) ((PurpleNoteView) child).resumeAnimation();
+                if (child instanceof PurpleLinkView) ((PurpleLinkView) child).resumeAnimation();
+                if (child instanceof OrangeNoteView) ((OrangeNoteView) child).resumeAnimation();
+                if (child instanceof YellowNoteView) ((YellowNoteView) child).resumeAnimation();
+            }
+        }
+    }
     // === 【新增逻辑点1】：多媒体播放控制引擎全量实现 ===
     private void initMediaPlayer(String songFileName) {
         if (mediaPlayer != null) {
@@ -435,22 +496,35 @@ public class GMX_Activity extends AppCompatActivity {
     }
 
     private void setupProgressAnimator(int durationMs) {
-        if (progressAnimator != null && progressAnimator.isRunning()) progressAnimator.cancel();
+        if (progressAnimator != null) {
+            progressAnimator.cancel();
+        }
 
-        progressAnimator = ValueAnimator.ofInt(0, 100);
+        progressAnimator = android.animation.ValueAnimator.ofFloat(0, 1f);
         progressAnimator.setDuration(durationMs);
+        progressAnimator.setInterpolator(new android.view.animation.LinearInterpolator());
         progressAnimator.addUpdateListener(animation -> {
-            pbSongProgress.setProgress((int) animation.getAnimatedValue());
             long currentTime = animation.getCurrentPlayTime();
+
+            android.widget.ProgressBar pb = findViewById(R.id.pb_song_progress);
+            if (pb != null) {
+                pb.setProgress((int) ((float) currentTime / durationMs * pb.getMax()));
+            }
+
             for (NoteEvent event : noteTimeline) {
-                if (!event.isSpawned && currentTime >= event.spawnTimeMs) {
-                    event.isSpawned = true;
+                if (!event.isTriggered && currentTime >= event.spawnTimeMs) {
+                    event.isTriggered = true;
                     event.action.run();
                 }
             }
         });
-        progressAnimator.addListener(new AnimatorListenerAdapter() {
-            @Override public void onAnimationEnd(Animator animation) { goToFXActivity(); }
+        progressAnimator.addListener(new android.animation.AnimatorListenerAdapter() {
+            @Override
+            public void onAnimationEnd(android.animation.Animator animation) {
+                if (!isGamePaused) {
+                    goToFXActivity();
+                }
+            }
         });
         progressAnimator.start();
     }
@@ -472,16 +546,21 @@ public class GMX_Activity extends AppCompatActivity {
     @Override
     protected void onResume() {
         super.onResume();
-        if (progressAnimator != null) {
-            if (progressAnimator.isPaused()) progressAnimator.resume();
-            else if (!progressAnimator.isRunning() && pbSongProgress.getProgress() == 0) progressAnimator.start();
+        if (isGamePaused) {
+            // 如果你想让玩家一回来就自动继续，直接调用：
+            resumeGame();
+
+            // 【提示】：如果你希望切回来时保持暂停，让玩家手动点“继续”才开始，
+            // 那么这里什么都不用写，只需要确保场景一中的“继续”按钮绑定了 resumeGame() 即可。
         }
     }
 
     @Override
     protected void onPause() {
         super.onPause();
-        if (progressAnimator != null && progressAnimator.isRunning()) progressAnimator.pause();
+        if (!isGamePaused && mediaPlayer != null && mediaPlayer.isPlaying()) {
+            pauseGame();
+        }
     }
 
     @Override
@@ -531,44 +610,63 @@ public class GMX_Activity extends AppCompatActivity {
     }
 
     // ================= 自定义交互音符视图类 =================
-
-    // 1. 蓝色音符
+// ==================== 1. 蓝色音符 (生命周期规范化) ====================
     class BlueNoteView extends View {
         private Paint innerPaint, strokePaint;
         private float sweepAngle = 0;
         private boolean isHit = false;
+        private ValueAnimator anim = null;
 
         public BlueNoteView(android.content.Context context) {
             super(context);
             innerPaint = new Paint(); innerPaint.setColor(Color.parseColor("#00BFFF")); innerPaint.setAntiAlias(true);
             strokePaint = new Paint(); strokePaint.setColor(Color.parseColor("#00008B")); strokePaint.setStyle(Paint.Style.STROKE); strokePaint.setStrokeWidth(30); strokePaint.setAntiAlias(true);
 
-            post(() -> {
-                ValueAnimator anim = ValueAnimator.ofFloat(0, 360);
-                anim.setDuration(1500);
-                anim.addUpdateListener(a -> {
-                    if (isHit) return;
-                    sweepAngle = (float) a.getAnimatedValue();
-                    if (flagPushing) {
-                        isHit = true;
-                        scoreManager.addHit(); // 【击打成功】
-                        if (getParent() != null) {
-                            ((FrameLayout) getParent()).addView(new HitEffectView(getContext(), Color.parseColor("#00BFFF"), getWidth() / 2f, getHeight() / 2f));
-                            ((ViewGroup) getParent()).removeView(BlueNoteView.this);
-                        }
-                        anim.cancel();
+            // 1. 构造函数中只负责高能创建，杜绝 null 崩溃
+            anim = ValueAnimator.ofFloat(0, 360);
+            anim.setDuration(1500);
+            anim.addUpdateListener(a -> {
+                if (isHit) return;
+                sweepAngle = (float) a.getAnimatedValue();
+                if (flagPushing) {
+                    isHit = true;
+                    scoreManager.addHit();
+                    if (getParent() != null) {
+                        ((FrameLayout) getParent()).addView(new HitEffectView(getContext(), Color.parseColor("#00BFFF"), getWidth() / 2f, getHeight() / 2f));
+                        ((ViewGroup) getParent()).removeView(BlueNoteView.this);
                     }
-                    invalidate();
-                });
-                anim.addListener(new AnimatorListenerAdapter() {
-                    @Override public void onAnimationEnd(Animator animation) {
-                        if (!isHit) scoreManager.resetCombo(); // 【漏键中断】
-                        if (!isHit && getParent() != null) ((ViewGroup) getParent()).removeView(BlueNoteView.this);
-                    }
-                });
-                anim.start();
+                    anim.cancel();
+                }
+                invalidate();
+            });
+            anim.addListener(new AnimatorListenerAdapter() {
+                @Override public void onAnimationEnd(Animator animation) {
+                    if (!isHit) scoreManager.resetCombo();
+                    if (!isHit && getParent() != null) ((ViewGroup) getParent()).removeView(BlueNoteView.this);
+                }
             });
         }
+
+        // 2. 只有当真正被 addView 挂载到屏幕上时，时间轴才允许开始走字
+        @Override
+        protected void onAttachedToWindow() {
+            super.onAttachedToWindow();
+            if (anim != null) {
+                anim.start();
+                if (isGamePaused) {
+                    anim.pause();
+                }
+            }
+        }
+
+        public void pauseAnimation() {
+            if (anim != null && anim.isRunning()) anim.pause();
+        }
+
+        public void resumeAnimation() {
+            if (anim != null && anim.isPaused()) anim.resume();
+        }
+
         @Override protected void onDraw(Canvas canvas) {
             float cx = getWidth() / 2f, cy = getHeight() / 2f, radius = 150f;
             canvas.drawCircle(cx, cy, radius, innerPaint);
@@ -577,9 +675,7 @@ public class GMX_Activity extends AppCompatActivity {
         }
     }
 
-    // 2. 紫色音符 (长按交互，动态时间与严格容错)
-    // 2. 紫色音符 (修复：确保无论是击打成功还是 Miss，在 t 时间结束时必然移除)
-    // 2. 紫色音符 (长按交互，动态时间与严格容错)
+    // ==================== 2. 紫色音符 (彻底修复提前实例化偷跑的致命 BUG) ====================
     class PurpleNoteView extends View {
         private Paint innerPaint, strokePaint;
         private float sweepAngle = 0;
@@ -593,6 +689,7 @@ public class GMX_Activity extends AppCompatActivity {
         private boolean isMissed = false;
         private boolean isSuccessCompleted = false;
         private long lastEffectTime = 0;
+        private ValueAnimator anim = null;
 
         public PurpleNoteView(android.content.Context context, boolean isTop, PurpleLinkView link, long lifeTime) {
             super(context);
@@ -604,63 +701,80 @@ public class GMX_Activity extends AppCompatActivity {
             innerPaint = new Paint(); innerPaint.setColor(Color.parseColor("#9932CC")); innerPaint.setAntiAlias(true);
             strokePaint = new Paint(); strokePaint.setColor(Color.parseColor("#4B0082")); strokePaint.setStyle(Paint.Style.STROKE); strokePaint.setStrokeWidth(25); strokePaint.setAntiAlias(true);
 
-            post(() -> {
-                ValueAnimator anim = ValueAnimator.ofFloat(0, 1f);
-                anim.setDuration(t);
+            // 构造函数内仅实例化配置，严禁在此处执行 start() 偷跑
+            anim = ValueAnimator.ofFloat(0, 1f);
+            anim.setDuration(t);
+            anim.addUpdateListener(a -> {
+                if (isMissed || isSuccessCompleted) return;
+                long currentTime = a.getCurrentPlayTime();
+                boolean isCorrectPointing = isTop ? flagPointingTop : flagPointingBottom;
 
-                anim.addUpdateListener(a -> {
-                    if (isMissed || isSuccessCompleted) return;
-                    long currentTime = a.getCurrentPlayTime();
-                    boolean isCorrectPointing = isTop ? flagPointingTop : flagPointingBottom;
-
-                    if (hitStartTime == -1) {
-                        if (isCorrectPointing) {
-                            hitStartTime = currentTime;
-                        } else if (currentTime > m) {
+                if (hitStartTime == -1) {
+                    if (isCorrectPointing) {
+                        hitStartTime = currentTime;
+                    } else if (currentTime > m) {
+                        triggerMiss();
+                    }
+                } else {
+                    if (!isCorrectPointing) {
+                        if (dropStartTime == -1) dropStartTime = currentTime;
+                        else if (currentTime - dropStartTime > 300) {
                             triggerMiss();
                         }
                     } else {
-                        if (!isCorrectPointing) {
-                            if (dropStartTime == -1) dropStartTime = currentTime;
-                            else if (currentTime - dropStartTime > 300) {
-                                triggerMiss();
-                            }
-                        } else {
-                            dropStartTime = -1;
-                        }
+                        dropStartTime = -1;
+                    }
 
-                        if (hitStartTime != -1 && !isMissed) {
-                            float progress = (float)(currentTime - hitStartTime) / (t - hitStartTime);
-                            sweepAngle = Math.max(0, Math.min(360f, progress * 360f));
+                    if (hitStartTime != -1 && !isMissed) {
+                        float progress = (float)(currentTime - hitStartTime) / (t - hitStartTime);
+                        sweepAngle = Math.max(0, Math.min(360f, progress * 360f));
 
-                            if (currentTime - lastEffectTime >= 100) {
-                                lastEffectTime = currentTime;
-                                if (getParent() != null) {
-                                    float cx = getWidth() / 2f, cy = isTop ? getHeight() * 0.25f : getHeight() * 0.75f;
-                                    ((FrameLayout) getParent()).addView(new HitEffectView(getContext(), Color.parseColor("#9932CC"), cx, cy));
-                                }
+                        if (currentTime - lastEffectTime >= 100) {
+                            lastEffectTime = currentTime;
+                            if (getParent() != null) {
+                                float cx = getWidth() / 2f, cy = isTop ? getHeight() * 0.25f : getHeight() * 0.75f;
+                                ((FrameLayout) getParent()).addView(new HitEffectView(getContext(), Color.parseColor("#9932CC"), cx, cy));
                             }
                         }
                     }
-                    invalidate();
-                });
-
-                anim.addListener(new AnimatorListenerAdapter() {
-                    @Override public void onAnimationEnd(Animator animation) {
-                        if (getParent() != null) {
-                            if (!isMissed && hitStartTime != -1) {
-                                isSuccessCompleted = true;
-                                scoreManager.addHit();
-                                if (linkView != null) linkView.activate();
-                            } else if (!isMissed && hitStartTime == -1) {
-                                triggerMiss();
-                            }
-                            ((ViewGroup) getParent()).removeView(PurpleNoteView.this);
-                        }
-                    }
-                });
-                anim.start();
+                }
+                invalidate();
             });
+
+            anim.addListener(new AnimatorListenerAdapter() {
+                @Override public void onAnimationEnd(Animator animation) {
+                    if (getParent() != null) {
+                        if (!isMissed && hitStartTime != -1) {
+                            isSuccessCompleted = true;
+                            scoreManager.addHit();
+                            if (linkView != null) linkView.activate();
+                        } else if (!isMissed && hitStartTime == -1) {
+                            triggerMiss();
+                        }
+                        ((ViewGroup) getParent()).removeView(PurpleNoteView.this);
+                    }
+                }
+            });
+        }
+
+        // 当时间轴派发该紫键 addView 时，在此处准时拦截并启动动画
+        @Override
+        protected void onAttachedToWindow() {
+            super.onAttachedToWindow();
+            if (anim != null) {
+                anim.start();
+                if (isGamePaused) {
+                    anim.pause();
+                }
+            }
+        }
+
+        public void pauseAnimation() {
+            if (anim != null && anim.isRunning()) anim.pause();
+        }
+
+        public void resumeAnimation() {
+            if (anim != null && anim.isPaused()) anim.resume();
         }
 
         private void triggerMiss() {
@@ -672,7 +786,6 @@ public class GMX_Activity extends AppCompatActivity {
             if (linkView != null) linkView.triggerMiss();
         }
 
-        // 【核心排查点】：此方法必须存在且为 public 权限，参数类型必须为 PurpleLinkView
         public void setLinkView(PurpleLinkView link) {
             this.linkView = link;
         }
@@ -694,13 +807,13 @@ public class GMX_Activity extends AppCompatActivity {
         }
     }
 
-    // 3. 紫色连接线 (前置唤醒逻辑)
-    // 3. 紫色连接线 (修复未挂载时提前 Miss 残留屏幕的 BUG 类)
+    // ==================== 3. 紫色连接线 (对齐挂载生命周期) ====================
     class PurpleLinkView extends View {
         private Paint paint;
         private boolean isTopToBottom;
         private boolean isHit = false;
         private boolean isMissed = false;
+        private ValueAnimator anim = null;
 
         public PurpleLinkView(android.content.Context context, boolean isTopToBottom) {
             super(context);
@@ -709,12 +822,10 @@ public class GMX_Activity extends AppCompatActivity {
             paint.setStyle(Paint.Style.STROKE); paint.setStrokeJoin(Paint.Join.ROUND); paint.setStrokeCap(Paint.Cap.ROUND); paint.setAntiAlias(true);
         }
 
-        // 【核心新增检测修复点】：当视图被系统真正挂载到窗口时触发
         @Override
         protected void onAttachedToWindow() {
             super.onAttachedToWindow();
-            // 如果在被真正 addView 进屏幕前，前导键就已经触发了 triggerMiss 并把当前变量改为了 true
-            // 说明错过了前面的延迟销毁，在这里刚一冒头就必须立刻执行安全自毁，绝不留在屏幕中央卡死
+            // 如果在前置装载时因为前导错位触发了 Miss 标记，刚挂载上窗口就必须立刻自毁移除
             if (isMissed) {
                 post(() -> {
                     if (getParent() != null) {
@@ -724,6 +835,14 @@ public class GMX_Activity extends AppCompatActivity {
             }
         }
 
+        public void pauseAnimation() {
+            if (anim != null && anim.isRunning()) anim.pause();
+        }
+
+        public void resumeAnimation() {
+            if (anim != null && anim.isPaused()) anim.resume();
+        }
+
         public void triggerMiss() {
             if (isHit) return;
             isMissed = true;
@@ -731,7 +850,6 @@ public class GMX_Activity extends AppCompatActivity {
             setAlpha(0.3f);
             invalidate();
 
-            // 只有在已经挂载到容器里的情况下，延时自毁才生效
             new Handler(Looper.getMainLooper()).postDelayed(() -> {
                 if (getParent() != null) ((ViewGroup) getParent()).removeView(this);
             }, 500);
@@ -740,7 +858,7 @@ public class GMX_Activity extends AppCompatActivity {
         public void activate() {
             if (isMissed) return;
 
-            ValueAnimator anim = ValueAnimator.ofFloat(0, 1);
+            anim = ValueAnimator.ofFloat(0, 1);
             anim.setDuration(800);
             anim.addUpdateListener(a -> {
                 if (isHit || isMissed) return;
@@ -761,7 +879,11 @@ public class GMX_Activity extends AppCompatActivity {
                     if (!isHit && !isMissed) triggerMiss();
                 }
             });
+
             anim.start();
+            if (isGamePaused) {
+                anim.pause();
+            }
         }
 
         @Override protected void onDraw(Canvas canvas) {
@@ -781,13 +903,7 @@ public class GMX_Activity extends AppCompatActivity {
         }
     }
 
-    // 4. 橙色长条音符 (严格全程覆盖判定)
-    // 4. 橙色长条音符 (严格时间与速度矩阵控制)
-    // 4. 橙色长条音符 (逐渐从中线冒头机制)
-    // 4. 橙色长条音符 (精准两阶段时间控制，支持 Miss 后继续移动)
-    // 4. 橙色长条音符 (全期绝对匀速控制类)
-    // 4. 橙色长条音符 (统一高速匀速，长度受 LivingLife 制约类)
-    // 4. 橙色长条音符 (完全不省略补全类)
+    // ==================== 4. 橙色长条音符 (对齐挂载生命周期) ====================
     class OrangeNoteView extends View {
         private Paint paint;
         private float currentX = -1;
@@ -801,8 +917,8 @@ public class GMX_Activity extends AppCompatActivity {
         private long lastEffectTime = 0;
         private long lifeTime;
         private int screenWidth;
+        private ValueAnimator anim = null;
 
-        // 构造函数重构：强行接收外界统一的 screenWidth 像素值
         public OrangeNoteView(android.content.Context context, boolean isLeft, long lifeTime, int screenWidth) {
             super(context);
             this.isLeft = isLeft;
@@ -810,77 +926,92 @@ public class GMX_Activity extends AppCompatActivity {
             this.screenWidth = screenWidth;
             paint = new Paint(); paint.setColor(Color.parseColor("#FFA500"));
 
-            post(() -> {
-                float centerX = screenWidth / 2f;
-                float orangeSpeed = 0.6f;
-                float rectWidth = lifeTime * orangeSpeed;
-                long preTouchDuration = (long) (centerX / orangeSpeed);
+            float centerX = screenWidth / 2f;
+            float orangeSpeed = 0.6f;
+            float rectWidth = lifeTime * orangeSpeed;
+            long preTouchDuration = (long) (centerX / orangeSpeed);
 
-                // 完全基于外部强对齐的绝对坐标系
-                float startX = isLeft ? (centerX + rectWidth) : (centerX - rectWidth);
-                float endX = isLeft ? 0f : (float) screenWidth;
+            float startX = isLeft ? (centerX + rectWidth) : (centerX - rectWidth);
+            float endX = isLeft ? 0f : (float) screenWidth;
 
-                ValueAnimator anim = ValueAnimator.ofFloat(startX, endX);
-                anim.setDuration(preTouchDuration + lifeTime);
-                anim.setInterpolator(new android.view.animation.LinearInterpolator());
+            anim = ValueAnimator.ofFloat(startX, endX);
+            anim.setDuration(preTouchDuration + lifeTime);
+            anim.setInterpolator(new android.view.animation.LinearInterpolator());
 
-                anim.addUpdateListener(a -> {
-                    currentX = (float) a.getAnimatedValue();
-                    long currentTime = a.getCurrentPlayTime();
+            anim.addUpdateListener(a -> {
+                currentX = (float) a.getAnimatedValue();
+                long currentTime = a.getCurrentPlayTime();
 
-                    if (!isMissed && !isSuccessCompleted) {
-                        long dt = (lastTime == -1) ? 0 : (currentTime - lastTime);
-                        lastTime = currentTime;
+                if (!isMissed && !isSuccessCompleted) {
+                    long dt = (lastTime == -1) ? 0 : (currentTime - lastTime);
+                    lastTime = currentTime;
 
-                        float leftEdge = isLeft ? currentX - rectWidth : currentX;
-                        float rightEdge = isLeft ? currentX : currentX + rectWidth;
+                    float leftEdge = isLeft ? currentX - rectWidth : currentX;
+                    float rightEdge = isLeft ? currentX : currentX + rectWidth;
 
-                        boolean isTouchingEdge = (isLeft) ? (leftEdge <= 0 && rightEdge >= 0) : (rightEdge >= screenWidth && leftEdge <= screenWidth);
-                        boolean isCorrectRaising = isLeft ? flagRaisingLeft : flagRaisingRight;
+                    boolean isTouchingEdge = (isLeft) ? (leftEdge <= 0 && rightEdge >= 0) : (rightEdge >= screenWidth && leftEdge <= screenWidth);
+                    boolean isCorrectRaising = isLeft ? flagRaisingLeft : flagRaisingRight;
 
-                        if (isTouchingEdge) {
-                            if (!isSuccessStarted) {
-                                if (isCorrectRaising) {
-                                    isSuccessStarted = true;
-                                    scoreManager.addHit();
-                                } else {
-                                    dropTimer += dt;
-                                    if (dropTimer > 300) triggerMiss();
-                                }
+                    if (isTouchingEdge) {
+                        if (!isSuccessStarted) {
+                            if (isCorrectRaising) {
+                                isSuccessStarted = true;
+                                scoreManager.addHit();
                             } else {
-                                if (!isCorrectRaising) {
-                                    dropTimer += dt;
-                                    if (dropTimer > 300) triggerMiss();
-                                } else {
-                                    dropTimer = 0;
-                                    if (currentTime - lastEffectTime >= 100) {
-                                        lastEffectTime = currentTime;
-                                        if (getParent() != null) {
-                                            float cy = getHeight() * 0.5f;
-                                            float effectX = isLeft ? 0f : (float) screenWidth;
-                                            ((FrameLayout) getParent()).addView(new HitEffectView(getContext(), Color.parseColor("#FFA500"), effectX, cy));
-                                        }
+                                dropTimer += dt;
+                                if (dropTimer > 300) triggerMiss();
+                            }
+                        } else {
+                            if (!isCorrectRaising) {
+                                dropTimer += dt;
+                                if (dropTimer > 300) triggerMiss();
+                            } else {
+                                dropTimer = 0;
+                                if (currentTime - lastEffectTime >= 100) {
+                                    lastEffectTime = currentTime;
+                                    if (getParent() != null) {
+                                        float cy = getHeight() * 0.5f;
+                                        float effectX = isLeft ? 0f : (float) screenWidth;
+                                        ((FrameLayout) getParent()).addView(new HitEffectView(getContext(), Color.parseColor("#FFA500"), effectX, cy));
                                     }
                                 }
                             }
                         }
                     }
-                    invalidate();
-                });
-                anim.addListener(new AnimatorListenerAdapter() {
-                    @Override public void onAnimationEnd(Animator animation) {
-                        if (!isMissed && !isSuccessCompleted) {
-                            if (isSuccessStarted) {
-                                triggerSuccessEnd();
-                            } else {
-                                scoreManager.resetCombo();
-                            }
-                        }
-                        if (getParent() != null) ((ViewGroup) getParent()).removeView(OrangeNoteView.this);
-                    }
-                });
-                anim.start();
+                }
+                invalidate();
             });
+            anim.addListener(new AnimatorListenerAdapter() {
+                @Override public void onAnimationEnd(Animator animation) {
+                    if (!isMissed && !isSuccessCompleted) {
+                        if (isSuccessStarted) {
+                            triggerSuccessEnd();
+                        } else {
+                            scoreManager.resetCombo();
+                        }
+                    }
+                    if (getParent() != null) ((ViewGroup) getParent()).removeView(OrangeNoteView.this);
+                }
+            });
+        }
+
+        @Override
+        protected void onAttachedToWindow() {
+            super.onAttachedToWindow();
+            if (anim != null) {
+                anim.start();
+                if (isGamePaused) {
+                    anim.pause();
+                }
+            }
+        }
+
+        public void pauseAnimation() {
+            if (anim != null && anim.isRunning()) anim.pause();
+        }
+
+        public void resumeAnimation() {
+            if (anim != null && anim.isPaused()) anim.resume();
         }
 
         private void triggerMiss() {
@@ -924,14 +1055,14 @@ public class GMX_Activity extends AppCompatActivity {
         }
     }
 
-    // 5. 黄色短音符
-    // 5. 黄色短音符 (准时触线打击机制)
+    // ==================== 5. 黄色短音符 (对齐挂载生命周期) ====================
     class YellowNoteView extends View {
         private Paint paint;
         private float currentY = -1;
         private boolean isLeft;
         private boolean isHit = false;
         private long lifeTime;
+        private ValueAnimator anim = null;
 
         public YellowNoteView(android.content.Context context, boolean isLeft, long lifeTime) {
             super(context);
@@ -939,47 +1070,61 @@ public class GMX_Activity extends AppCompatActivity {
             this.lifeTime = lifeTime;
             paint = new Paint(); paint.setColor(Color.YELLOW); paint.setStrokeWidth(40); paint.setStrokeCap(Paint.Cap.ROUND);
 
-            post(() -> {
-                // 起点为顶部0，触线边缘设为屏幕底线 getHeight()
-                float startY = 0f;
-                float targetHitLine = getHeight();
+            anim = ValueAnimator.ofFloat(0f, 1.2f);
+            anim.setDuration((long) (lifeTime * 1.2f));
+            anim.setInterpolator(new android.view.animation.LinearInterpolator());
 
-                ValueAnimator anim = ValueAnimator.ofFloat(startY, targetHitLine * 1.2f);
-                // 触线时间为 lifeTime，总运行距离为 1.2倍，因此总时间按等比线性扩充
-                anim.setDuration((long) (lifeTime * 1.2f));
-                anim.setInterpolator(new android.view.animation.LinearInterpolator()); // 必须线性匀速
+            anim.addUpdateListener(a -> {
+                if (isHit) return;
+                float factor = (float) a.getAnimatedValue();
 
-                anim.addUpdateListener(a -> {
-                    if (isHit) return;
-                    currentY = (float) a.getAnimatedValue();
+                float viewHeight = getHeight() > 0 ? getHeight() : getResources().getDisplayMetrics().heightPixels;
+                currentY = factor * viewHeight;
 
-                    // 判定窗口：在恰好触及边缘线的前后 200 像素区间内开放交互
-                    boolean inHitZone = currentY > getHeight() - 200f && currentY < getHeight() + 100f;
-                    boolean isCorrectRaising = isLeft ? flagRaisingLeft : flagRaisingRight;
+                boolean inHitZone = currentY > viewHeight - 200f && currentY < viewHeight + 100f;
+                boolean isCorrectRaising = isLeft ? flagRaisingLeft : flagRaisingRight;
 
-                    if (inHitZone && isCorrectRaising) {
-                        isHit = true;
-                        scoreManager.addHit();
-                        if (getParent() != null) {
-                            float cx = isLeft ? getWidth() * 0.25f : getWidth() * 0.75f;
-                            ((FrameLayout) getParent()).addView(new HitEffectView(getContext(), Color.YELLOW, cx, getHeight()));
-                            ((ViewGroup) getParent()).removeView(YellowNoteView.this);
-                        }
-                        anim.cancel();
+                if (inHitZone && isCorrectRaising) {
+                    isHit = true;
+                    scoreManager.addHit();
+                    if (getParent() != null) {
+                        float cx = isLeft ? getWidth() * 0.25f : getWidth() * 0.75f;
+                        ((FrameLayout) getParent()).addView(new HitEffectView(getContext(), Color.YELLOW, cx, viewHeight));
+                        ((ViewGroup) getParent()).removeView(YellowNoteView.this);
                     }
-                    invalidate();
-                });
-                anim.addListener(new AnimatorListenerAdapter() {
-                    @Override public void onAnimationEnd(Animator animation) {
-                        if (!isHit) {
-                            scoreManager.resetCombo(); // 动画结束仍未击中，断连
-                        }
-                        if (getParent() != null) ((ViewGroup) getParent()).removeView(YellowNoteView.this);
+                    anim.cancel();
+                }
+                invalidate();
+            });
+            anim.addListener(new AnimatorListenerAdapter() {
+                @Override public void onAnimationEnd(Animator animation) {
+                    if (!isHit) {
+                        scoreManager.resetCombo();
                     }
-                });
-                anim.start();
+                    if (getParent() != null) ((ViewGroup) getParent()).removeView(YellowNoteView.this);
+                }
             });
         }
+
+        @Override
+        protected void onAttachedToWindow() {
+            super.onAttachedToWindow();
+            if (anim != null) {
+                anim.start();
+                if (isGamePaused) {
+                    anim.pause();
+                }
+            }
+        }
+
+        public void pauseAnimation() {
+            if (anim != null && anim.isRunning()) anim.pause();
+        }
+
+        public void resumeAnimation() {
+            if (anim != null && anim.isPaused()) anim.resume();
+        }
+
         @Override protected void onDraw(Canvas canvas) {
             if (currentY == -1) currentY = 0f;
             float cx = isLeft ? getWidth() * 0.25f : getWidth() * 0.75f;
