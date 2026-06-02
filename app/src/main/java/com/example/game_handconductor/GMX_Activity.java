@@ -72,6 +72,7 @@ public class GMX_Activity extends AppCompatActivity {
     private ScoreManager scoreManager = new ScoreManager();
     private Handler mainHandler = new Handler(Looper.getMainLooper());
     private TextView tvCombo;
+
     // ================= 游戏 UI 与状态 =================
     private ProgressBar pbSongProgress;
     private ValueAnimator progressAnimator;
@@ -318,15 +319,59 @@ public class GMX_Activity extends AppCompatActivity {
         flagRaisingRight = currentRightRaise;
     }
 
+    // === 游戏媒体与核心状态控制变量 ===
+    private android.media.MediaPlayer mediaPlayer = null;
     private PurpleNoteView lastPurpleNote = null;
+
+    // === 【新增逻辑点1】：多媒体播放控制引擎全量实现 ===
+    private void initMediaPlayer(String songFileName) {
+        if (mediaPlayer != null) {
+            mediaPlayer.release();
+            mediaPlayer = null;
+        }
+        try {
+            mediaPlayer = new android.media.MediaPlayer();
+            // 【修改点3】：将音频源路径强制指向 assets/Music/ 文件夹
+            android.content.res.AssetFileDescriptor afd = getAssets().openFd("Music/" + songFileName);
+            mediaPlayer.setDataSource(afd.getFileDescriptor(), afd.getStartOffset(), afd.getLength());
+            afd.close();
+            mediaPlayer.prepare();
+        } catch (Exception e) {
+            android.util.Log.e("AudioError", "MediaPlayer 装载音频失败: " + songFileName);
+            e.printStackTrace();
+        }
+    }
+
+    private void startMusic() {
+        if (mediaPlayer != null && !mediaPlayer.isPlaying()) {
+            mediaPlayer.start();
+        }
+    }
     // ================= 游戏进度与音符生成 =================
     private void initNoteTimeline() {
         noteTimeline.clear();
 
-        ChartData chart = ChartLoader.loadChart(this, "song1.csv");
+        // 动态接收从选关界面传过来的 CSV 谱面文件名（例如 "song1.csv"），若为空则兜底默认读取 "song1.csv"
+        String csvName = getIntent().getStringExtra("CSV_NAME");
+        if (csvName == null || csvName.isEmpty()) {
+            csvName = "song1.csv";
+        }
+
+        // 加载 MusicCSV 目录下的配置文件
+        ChartData chart = ChartLoader.loadChart(this, csvName);
+
+        // 【修改点2】：文件名双向绝对对齐检验逻辑
+        String cleanCsvName = csvName.replace(".csv", "").trim();
+        String cleanSongName = chart.songFileName.replace(".mp3", "").trim();
+        if (!cleanCsvName.equalsIgnoreCase(cleanSongName)) {
+            android.util.Log.e("AssetValidationError", "【警告】谱面资产配置产生错位！当前加载的谱面为: " + csvName + "，但其内部声明的音频文件却为: " + chart.songFileName);
+        }
+
+        // 装载对应名称的音乐文件
+        initMediaPlayer(chart.songFileName);
+
         scoreManager.totalNotes = chart.totalNotes;
 
-        // 获取绝对物理像素宽度，作为唯一的基准
         int screenWidth = getResources().getDisplayMetrics().widthPixels;
         float centerX = screenWidth / 2f;
 
@@ -368,10 +413,10 @@ public class GMX_Activity extends AppCompatActivity {
                     }
                     noteTimeline.add(new NoteEvent(start, () -> noteContainer.addView(link)));
                     break;
-                case 4: // 左侧橙键 (向构造函数强行注入绝对基准 screenWidth)
+                case 4: // 左侧橙键
                     noteTimeline.add(new NoteEvent(start - preTouchDuration, () -> noteContainer.addView(new OrangeNoteView(this, true, life, screenWidth))));
                     break;
-                case 5: // 右侧橙键 (向构造函数强行注入绝对基准 screenWidth)
+                case 5: // 右侧橙键
                     noteTimeline.add(new NoteEvent(start - preTouchDuration, () -> noteContainer.addView(new OrangeNoteView(this, false, life, screenWidth))));
                     break;
                 case 6: // 左侧黄键
@@ -384,6 +429,9 @@ public class GMX_Activity extends AppCompatActivity {
         }
 
         setupProgressAnimator(chart.songLengthSeconds * 1000);
+
+        // 整个关卡时间轴及音频装载就绪，开启音乐播放
+        startMusic();
     }
 
     private void setupProgressAnimator(int durationMs) {
@@ -442,6 +490,12 @@ public class GMX_Activity extends AppCompatActivity {
         if (progressAnimator != null) progressAnimator.cancel();
         if (cameraExecutor != null && !cameraExecutor.isShutdown()) cameraExecutor.shutdown();
         if (handLandmarker != null) handLandmarker.close();
+
+        if (mediaPlayer != null) {
+            mediaPlayer.stop();
+            mediaPlayer.release();
+            mediaPlayer = null;
+        }
     }
 
     // ================= 特效类 =================

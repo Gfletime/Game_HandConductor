@@ -11,37 +11,45 @@ import java.util.List;
 
 
 // === 【重构工具类】：完全适配新版 CSV 格式 ===
+// === 谱面数据实体类 (完整不省略) ===
+
+// === 谱面解析加载器 (完整不省略) ===
+// === 谱面数据实体类 (完整不省略) ===
+
+// === 谱面解析加载器 (完整不省略) ===
 public class ChartLoader {
     public static ChartData loadChart(android.content.Context context, String fileName) {
         ChartData chartData = new ChartData();
         try {
-            java.io.BufferedReader reader = new java.io.BufferedReader(new java.io.InputStreamReader(context.getAssets().open(fileName)));
+            // 【修改点3】：将读取路径强制指向 assets/MusicCSV/ 文件夹
+            java.io.BufferedReader reader = new java.io.BufferedReader(
+                    new java.io.InputStreamReader(context.getAssets().open("MusicCSV/" + fileName))
+            );
             String line;
             while ((line = reader.readLine()) != null) {
                 String[] parts = line.split(",");
 
-                // 1. 读取歌曲长度信息：如 #,9999,,,,
+                if (line.startsWith("@")) {
+                    if (parts.length >= 2) {
+                        chartData.songFileName = parts[1].trim();
+                    }
+                    continue;
+                }
                 if (line.startsWith("#")) {
                     if (parts.length >= 2) {
                         chartData.songLengthSeconds = Integer.parseInt(parts[1].trim());
                     }
                     continue;
                 }
-
-                // 2. 读取音符总数信息：如 !,666,,,,
                 if (line.startsWith("!")) {
                     if (parts.length >= 2) {
                         chartData.totalNotes = Integer.parseInt(parts[1].trim());
                     }
                     continue;
                 }
-
-                // 跳过表头行
                 if (line.startsWith("Order")) {
                     continue;
                 }
-
-                // 3. 读取正文音符数据
                 if (parts.length >= 4) {
                     chartData.noteRows.add(parts);
                 }

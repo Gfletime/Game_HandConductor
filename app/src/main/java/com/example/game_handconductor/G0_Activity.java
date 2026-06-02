@@ -57,7 +57,7 @@ public class G0_Activity extends AppCompatActivity {
 
         songList = new ArrayList<>();
         // 请替换为你的真实图片资源
-        songList.add(new Song("Track 1 - 启航", R.mipmap.ic_launcher, 99, 30));
+        songList.add(new Song("song1", R.mipmap.ic_launcher, 99, 30));
         songList.add(new Song("Track 2 - 激流", R.mipmap.ic_launcher, 85, 120));
         songList.add(new Song("Track 3 - 宁静", R.mipmap.ic_launcher, 100, 55));
         songList.add(new Song("Track 4 - 终焉", R.mipmap.ic_launcher, 45, 15));
@@ -123,6 +123,7 @@ public class G0_Activity extends AppCompatActivity {
                 Intent intent = new Intent(G0_Activity.this, GMX_Activity.class);
                 // 将歌曲名字和封面等信息传递给通用场景
                 intent.putExtra("SONG_NAME", currentSelectedSong.name);
+                intent.putExtra("CSV_NAME", currentSelectedSong.name+".csv");
                 intent.putExtra("SONG_COVER_ID", currentSelectedSong.coverResId);
                 startActivity(intent);
             }
