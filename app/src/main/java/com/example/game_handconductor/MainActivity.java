@@ -6,12 +6,83 @@ import android.view.View;
 import android.widget.Button;
 import androidx.appcompat.app.AppCompatActivity;
 
+import android.graphics.RenderEffect;
+import android.graphics.Shader;
+import android.os.Build;
+
+import java.io.IOException;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
+import android.widget.ImageView;
+import java.io.InputStream;
+import java.util.Random;
+
 public class MainActivity extends AppCompatActivity {
 
+    private ImageView bgImage;
+
+    private void loadRandomBackground() {
+
+        try {
+
+            String[] files =
+                    getAssets().list("background");
+
+            if (files == null || files.length == 0) {
+                return;
+            }
+
+            Random random = new Random();
+
+            String randomFile =
+                    files[random.nextInt(files.length)];
+
+            InputStream is =
+                    getAssets().open(
+                            "background/" + randomFile
+                    );
+
+            Bitmap bitmap =
+                    BitmapFactory.decodeStream(is);
+
+            bgImage.setImageBitmap(bitmap);
+
+            is.close();
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+
+                bgImage.setRenderEffect(
+                        RenderEffect.createBlurEffect(
+                                30f,
+                                30f,
+                                Shader.TileMode.CLAMP
+                        )
+                );
+            }
+
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
     @Override
     protected void onCreate(Bundle savedInstanceState) {
+
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
+
+        bgImage = findViewById(R.id.bgImage);
+
+        loadRandomBackground();
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            bgImage.setRenderEffect(
+                    RenderEffect.createBlurEffect(
+                            30f,
+                            30f,
+                            Shader.TileMode.CLAMP
+                    )
+            );
+        }
 
         // 1. 绑定UI组件
         Button btnStartGame = findViewById(R.id.btn_start_game);

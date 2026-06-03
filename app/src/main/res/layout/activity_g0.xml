@@ -1,99 +1,118 @@
 <?xml version="1.0" encoding="utf-8"?>
-<androidx.constraintlayout.widget.ConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<FrameLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
-    android:layout_height="match_parent"
-    android:background="#F5F5F5"
-    android:padding="16dp">
+    android:layout_height="match_parent">
 
-    <Button
-        android:id="@+id/btn_back_title"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="返回"
-        android:backgroundTint="#808080"
-        android:textColor="@android:color/white"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toTopOf="parent" />
+    <ImageView
+        android:id="@+id/iv_background"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:scaleType="centerCrop"/>
 
-    <Button
-        android:id="@+id/btn_goto_settings"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_marginStart="16dp"
-        android:text="设置"
-        android:backgroundTint="#808080"
-        android:textColor="@android:color/white"
-        app:layout_constraintStart_toEndOf="@id/btn_back_title"
-        app:layout_constraintTop_toTopOf="parent" />
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="#66000000"/>
+    <androidx.constraintlayout.widget.ConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android"
+        xmlns:app="http://schemas.android.com/apk/res-auto"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="#F5F5F5"
+        android:padding="16dp">
 
-    <LinearLayout
-        android:id="@+id/layout_left_info"
-        android:layout_width="0dp"
-        android:layout_height="0dp"
-        android:layout_marginTop="24dp"
-        android:layout_marginEnd="64dp" android:orientation="vertical"
-        app:layout_constraintBottom_toTopOf="@+id/layout_stats"
-        app:layout_constraintEnd_toStartOf="@+id/rv_song_list"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@id/btn_back_title">
+        <Button
+            android:id="@+id/btn_back_title"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="返回"
+            android:backgroundTint="#808080"
+            android:textColor="@android:color/white"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintTop_toTopOf="parent" />
 
-        <ImageView
-            android:id="@+id/iv_main_cover"
-            android:layout_width="match_parent"
+        <Button
+            android:id="@+id/btn_goto_settings"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="16dp"
+            android:text="设置"
+            android:backgroundTint="#808080"
+            android:textColor="@android:color/white"
+            app:layout_constraintStart_toEndOf="@id/btn_back_title"
+            app:layout_constraintTop_toTopOf="parent" />
+
+        <LinearLayout
+            android:id="@+id/layout_left_info"
+            android:layout_width="0dp"
             android:layout_height="0dp"
-            android:layout_weight="1"
-            android:background="#E0E0E0"
-            android:scaleType="centerCrop"
-            android:src="@mipmap/ic_launcher" />
+            android:layout_marginTop="24dp"
+            android:layout_marginEnd="64dp" android:orientation="vertical"
+            app:layout_constraintBottom_toTopOf="@+id/layout_stats"
+            app:layout_constraintEnd_toStartOf="@+id/rv_song_list"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintTop_toBottomOf="@id/btn_back_title">
 
-        <TextView
-            android:id="@+id/tv_song_name"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
-            android:text="歌曲名称: 未知"
-            android:textSize="22sp"
-            android:textStyle="bold"
-            android:gravity="center" />
-    </LinearLayout>
+            <ImageView
+                android:id="@+id/iv_main_cover"
+                android:layout_width="match_parent"
+                android:layout_height="0dp"
+                android:layout_weight="1"
+                android:background="#E0E0E0"
+                android:scaleType="centerCrop"
+                android:src="@mipmap/ic_launcher" />
 
-    <LinearLayout
-        android:id="@+id/layout_stats"
-        android:layout_width="0dp"
-        android:layout_height="wrap_content"
-        android:layout_marginBottom="16dp"
-        android:orientation="horizontal"
-        app:layout_constraintBottom_toBottomOf="parent"
-        app:layout_constraintEnd_toEndOf="@id/layout_left_info"
-        app:layout_constraintStart_toStartOf="parent">
+            <TextView
+                android:id="@+id/tv_song_name"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:text="歌曲名称: 未知"
+                android:textSize="22sp"
+                android:textStyle="bold"
+                android:gravity="center" />
+        </LinearLayout>
 
-        <TextView
-            android:id="@+id/tv_best_completion"
+        <LinearLayout
+            android:id="@+id/layout_stats"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:text="最佳完成度: 0%"
-            android:textSize="18sp" />
+            android:layout_marginBottom="16dp"
+            android:orientation="horizontal"
+            app:layout_constraintBottom_toBottomOf="parent"
+            app:layout_constraintEnd_toEndOf="@id/layout_left_info"
+            app:layout_constraintStart_toStartOf="parent">
 
-        <TextView
-            android:id="@+id/tv_max_combo"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:text="最大combo: 0"
-            android:textSize="18sp" />
-    </LinearLayout>
+            <TextView
+                android:id="@+id/tv_best_completion"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="最佳完成度: 0%"
+                android:textSize="18sp" />
 
-    <androidx.recyclerview.widget.RecyclerView
-        android:id="@+id/rv_song_list"
-        android:layout_width="160dp"
-        android:layout_height="0dp"
-        android:paddingTop="200dp"
-        android:paddingBottom="200dp"
-        android:clipToPadding="false"
-        app:layout_constraintBottom_toBottomOf="parent"
-        app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintTop_toTopOf="parent" />
+            <TextView
+                android:id="@+id/tv_max_combo"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="最大combo: 0"
+                android:textSize="18sp" />
+        </LinearLayout>
 
-</androidx.constraintlayout.widget.ConstraintLayout>
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/rv_song_list"
+            android:layout_width="160dp"
+            android:layout_height="0dp"
+            android:background="#80000000"
+            android:paddingTop="200dp"
+            android:paddingBottom="200dp"
+            android:clipToPadding="false"
+            app:layout_constraintBottom_toBottomOf="parent"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintTop_toTopOf="parent" />
+
+    </androidx.constraintlayout.widget.ConstraintLayout>
+
+</FrameLayout>
