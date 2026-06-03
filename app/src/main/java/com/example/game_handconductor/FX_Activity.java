@@ -3,13 +3,18 @@ package com.example.game_handconductor;
 import android.animation.ValueAnimator;
 import android.content.Context;
 import android.content.Intent;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.graphics.Color;
 import android.graphics.LinearGradient;
+import android.graphics.RenderEffect;
 import android.graphics.Shader;
+import android.os.Build;
 import android.os.Bundle;
 import android.view.View;
 import android.view.animation.OvershootInterpolator;
 import android.widget.Button;
+import android.widget.ImageSwitcher;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
@@ -26,13 +31,22 @@ import java.util.List;
 
 public class FX_Activity extends AppCompatActivity {
 
+    private ImageView vMainCover;
     private String songName;
     private int songCoverId;
+
+    private ImageView ivBackground;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_fx);
+
+        vMainCover = findViewById(R.id.iv_fx_cover);
+
+        ivBackground = findViewById(R.id.iv_background);
+
+        updateSongCover(songCoverId);
 
         // 1. 获取从 GMX 传过来的结算数据
         Intent intent = getIntent();
@@ -138,9 +152,38 @@ public class FX_Activity extends AppCompatActivity {
             finish();
         });
     }
+//    private void loadAndBindAssetCover(ImageView imageView, String fileName) {
+//        if (fileName == null || fileName.isEmpty() || "default".equalsIgnoreCase(fileName)) {
+//            imageView.setImageResource(R.mipmap.xnn);
+//        } else {
+//            try {
+//                InputStream is = getAssets().open("Image/MusicPageFace/" + fileName);
+//                Bitmap bitmap = BitmapFactory.decodeStream(is);
+//                imageView.setImageBitmap(bitmap);
+//                is.close();
+//            } catch (Exception e) {
+//                e.printStackTrace();
+//                imageView.setImageResource(R.mipmap.xnn);
+//            }
+//        }
+//    }
+    private void updateSongCover(int coverResId) {
+
+//        loadAndBindAssetCover(vMainCover,songName);
+
+        vMainCover.setImageResource(coverResId);
+        ivBackground.setImageResource(coverResId);
+
+        ivBackground.setRenderEffect(
+                RenderEffect.createBlurEffect(
+                        60f,
+                        60f,
+                        Shader.TileMode.CLAMP
+                )
+        );
+    }
 
     // --- 动画引擎内部逻辑封装 ---
-
     private void hideViewsInitially(View... views) {
         for (int i = 0; i < views.length; i++) {
             views[i].setAlpha(0f);
