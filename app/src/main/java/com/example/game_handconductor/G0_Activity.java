@@ -1,6 +1,9 @@
 package com.example.game_handconductor;
 
 import android.content.Intent;
+import android.graphics.RenderEffect;
+import android.graphics.Shader;
+import android.os.Build;
 import android.os.Bundle;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -39,6 +42,8 @@ public class G0_Activity extends AppCompatActivity {
     private TextView tvSongName, tvBestCompletion, tvMaxCombo;
     private List<Song> songList;
     private Song currentSelectedSong;
+
+    private ImageView ivBackground;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -158,6 +163,22 @@ public class G0_Activity extends AppCompatActivity {
         tvSongName.setText("当前选择: " + song.name);
         tvBestCompletion.setText("最佳完成度: " + song.bestCompletion + "%");
         tvMaxCombo.setText("最大combo: " + song.maxCombo);
+        updateBlurBackground(song.coverResId);
+    }
+    private void updateBlurBackground(int coverResId) {
+
+        ivBackground.setImageResource(coverResId);
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+
+            ivBackground.setRenderEffect(
+                    RenderEffect.createBlurEffect(
+                            60f,
+                            60f,
+                            Shader.TileMode.CLAMP
+                    )
+            );
+        }
     }
 
     class SongAdapter extends RecyclerView.Adapter<SongAdapter.SongViewHolder> {
