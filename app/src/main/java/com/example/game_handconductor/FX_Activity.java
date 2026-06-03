@@ -1,7 +1,11 @@
 package com.example.game_handconductor;
 
 import android.animation.ValueAnimator;
+import android.content.Context;
 import android.content.Intent;
+import android.graphics.Color;
+import android.graphics.LinearGradient;
+import android.graphics.Shader;
 import android.os.Bundle;
 import android.view.View;
 import android.view.animation.OvershootInterpolator;
@@ -10,6 +14,15 @@ import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 import androidx.appcompat.app.AppCompatActivity;
+
+import java.io.BufferedReader;
+import java.io.File;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.io.FileOutputStream;
+import java.io.PrintWriter;
+import java.util.ArrayList;
+import java.util.List;
 
 public class FX_Activity extends AppCompatActivity {
 
@@ -27,32 +40,37 @@ public class FX_Activity extends AppCompatActivity {
         songCoverId = intent.getIntExtra("SONG_COVER_ID", R.mipmap.ic_launcher);
 
         String rank = intent.getStringExtra("RANK");
-        String completionStr = intent.getStringExtra("COMPLETION");
         int hits = intent.getIntExtra("HITS", 0);
         int maxCombo = intent.getIntExtra("MAX_COMBO", 0);
         int misses = intent.getIntExtra("MISSES", 0);
 
-        // 解析完成度数字 (去掉 "%" 符号以便进行数字滚动)
+        // 兼容性数据提取：完美支持 Integer 与带有 % 符号的 String
         int completion = 0;
-        if (completionStr != null) {
-            try {
-                completion = Integer.parseInt(completionStr.replace("%", "").trim());
-            } catch (NumberFormatException e) {
-                e.printStackTrace();
+        if (intent.hasExtra("COMPLETION")) {
+            Object completionExtra = intent.getExtras().get("COMPLETION");
+            if (completionExtra instanceof Integer) {
+                completion = (Integer) completionExtra;
+            } else if (completionExtra instanceof String) {
+                try {
+                    completion = Integer.parseInt(((String) completionExtra).replace("%", "").trim());
+                } catch (NumberFormatException e) {
+                    e.printStackTrace();
+                }
             }
         }
+
+        // 智能执行高分纪录本地安全覆写
+        saveStatsToLocalCsv(songName, rank, completion, maxCombo);
 
         // 2. 绑定 UI 组件
         ImageView ivCover = findViewById(R.id.iv_fx_cover);
         TextView tvRank = findViewById(R.id.tv_fx_rank);
 
-        // 左侧的标签文字 (需要依次渐显)
         TextView labelCompletion = (TextView) ((LinearLayout) findViewById(R.id.tv_fx_completion).getParent()).getChildAt(0);
         TextView labelHits = (TextView) ((LinearLayout) findViewById(R.id.tv_fx_hits).getParent()).getChildAt(0);
         TextView labelCombo = (TextView) ((LinearLayout) findViewById(R.id.tv_fx_combo).getParent()).getChildAt(0);
         TextView labelMisses = (TextView) ((LinearLayout) findViewById(R.id.tv_fx_misses).getParent()).getChildAt(0);
 
-        // 右侧的数值文字 (需要数字滚动)
         TextView tvCompletion = findViewById(R.id.tv_fx_completion);
         TextView tvHits = findViewById(R.id.tv_fx_hits);
         TextView tvCombo = findViewById(R.id.tv_fx_combo);
@@ -61,32 +79,32 @@ public class FX_Activity extends AppCompatActivity {
         Button btnToG0 = findViewById(R.id.btn_fx_to_g0);
         Button btnReplay = findViewById(R.id.btn_fx_replay);
 
-        // 设置封面和评级文字
+        // 设置封面与评级
         ivCover.setImageResource(songCoverId);
-        if (rank != null) tvRank.setText(rank);
+        if (rank != null) {
+            tvRank.setText(rank);
+            applyRankColoring(tvRank, rank);
+        }
 
         // ================= 3. 开始执行入场动画 =================
-
-        // 隐藏所有需要动画的元素初始状态
         hideViewsInitially(tvRank, labelCompletion, tvCompletion, labelHits, tvHits,
                 labelCombo, tvCombo, labelMisses, tvMisses, btnToG0, btnReplay);
 
-        // 设定基础延迟时间 (单位: 毫秒)
         long delay = 300;
 
-        // A. 评级(S) 弹性弹出动画
+        // 评级弹性弹出
         tvRank.animate()
                 .scaleX(1f).scaleY(1f).alpha(1f)
                 .setDuration(600)
                 .setStartDelay(delay)
-                .setInterpolator(new OvershootInterpolator(2.0f)) // 弹性阻尼效果
+                .setInterpolator(new OvershootInterpolator(2.0f))
                 .start();
 
-        // B. 数据列表依次渐显 + 数字滚动
-        delay += 400; // 等待评级弹出后，开始显示数据
+        delay += 400;
 
+        // 数据行依次跑字滚动渐显
         animateRow(labelCompletion, tvCompletion, completion, delay, true);
-        delay += 250; // 每行间隔 250ms 显示下一行
+        delay += 250;
 
         animateRow(labelHits, tvHits, hits, delay, false);
         delay += 250;
@@ -97,7 +115,7 @@ public class FX_Activity extends AppCompatActivity {
         animateRow(labelMisses, tvMisses, misses, delay, false);
         delay += 400;
 
-        // C. 底部按钮最后渐显
+        // 底部按钮渐显
         fadeInView(btnToG0, delay);
         fadeInView(btnReplay, delay + 100);
 
@@ -114,38 +132,31 @@ public class FX_Activity extends AppCompatActivity {
         btnReplay.setOnClickListener(v -> {
             Intent gmxIntent = new Intent(FX_Activity.this, GMX_Activity.class);
             gmxIntent.putExtra("SONG_NAME", songName);
+            gmxIntent.putExtra("CSV_NAME", songName + ".csv");
             gmxIntent.putExtra("SONG_COVER_ID", songCoverId);
             startActivity(gmxIntent);
             finish();
         });
     }
 
-    // --- 动画辅助方法 ---
+    // --- 动画引擎内部逻辑封装 ---
 
-    /**
-     * 将所有视图初始设为全透明且缩放为0（针对评级），为入场动画做准备
-     */
     private void hideViewsInitially(View... views) {
         for (int i = 0; i < views.length; i++) {
             views[i].setAlpha(0f);
-            if (i == 0) { // 第一个元素是 tvRank
+            if (i == 0) {
                 views[i].setScaleX(0f);
                 views[i].setScaleY(0f);
             }
         }
     }
 
-    /**
-     * 渐显整行数据：标签渐显 + 数值从0开始滚动
-     */
     private void animateRow(View labelView, TextView valueView, int targetValue, long delay, boolean isPercentage) {
-        // 1. 标签和数值框渐显
         labelView.animate().alpha(1f).setDuration(300).setStartDelay(delay).start();
         valueView.animate().alpha(1f).setDuration(300).setStartDelay(delay).start();
 
-        // 2. 数值滚动动画
         ValueAnimator animator = ValueAnimator.ofInt(0, targetValue);
-        animator.setDuration(1000); // 滚动持续时间 1秒
+        animator.setDuration(1000);
         animator.setStartDelay(delay);
         animator.addUpdateListener(animation -> {
             int currentValue = (int) animation.getAnimatedValue();
@@ -158,14 +169,114 @@ public class FX_Activity extends AppCompatActivity {
         animator.start();
     }
 
-    /**
-     * 普通元素的渐显效果 (如底部按钮)
-     */
     private void fadeInView(View view, long delay) {
         view.animate()
                 .alpha(1f)
                 .setDuration(400)
                 .setStartDelay(delay)
                 .start();
+    }
+
+    // ==================== 评级色彩高级分级渲染矩阵 ====================
+    private void applyRankColoring(TextView tvRank, String rankStr) {
+        String cleanRank = rankStr.toUpperCase().trim();
+        tvRank.getPaint().setShader(null);
+
+        if ("SSS".equals(cleanRank)) {
+            float textWidth = tvRank.getPaint().measureText("SSS");
+            Shader rainbowShader = new LinearGradient(
+                    0, 0, textWidth, 0,
+                    new int[]{
+                            Color.parseColor("#FF1493"),
+                            Color.parseColor("#FF4500"),
+                            Color.parseColor("#FFD700"),
+                            Color.parseColor("#00FF00"),
+                            Color.parseColor("#00FFFF"),
+                            Color.parseColor("#0000FF"),
+                            Color.parseColor("#8A2BE2")
+                    },
+                    null, Shader.TileMode.CLAMP
+            );
+            tvRank.getPaint().setShader(rainbowShader);
+            tvRank.setTextColor(Color.RED);
+        } else if ("S".equals(cleanRank)) {
+            tvRank.setTextColor(Color.parseColor("#FFD700"));
+        } else if ("A".equals(cleanRank)) {
+            tvRank.setTextColor(Color.parseColor("#9932CC"));
+        } else if ("B".equals(cleanRank)) {
+            tvRank.setTextColor(Color.parseColor("#1E90FF"));
+        } else if ("C".equals(cleanRank)) {
+            tvRank.setTextColor(Color.parseColor("#32CD32"));
+        } else {
+            tvRank.setTextColor(Color.parseColor("#808080"));
+        }
+        tvRank.invalidate();
+    }
+
+    // ==================== 本地私有沙盒 CSV 持久化写回机制 ====================
+    private void saveStatsToLocalCsv(String currentSongName, String newRank, int newCompletion, int newMaxCombo) {
+        if (currentSongName == null || currentSongName.isEmpty()) {
+            return;
+        }
+
+        List<String> updatedFileLines = new ArrayList<>();
+
+        try {
+            File localCachedFile = new File(getFilesDir(), "MusicConfig.csv");
+            InputStream inputStream;
+            if (localCachedFile.exists()) {
+                inputStream = openFileInput("MusicConfig.csv");
+            } else {
+                inputStream = getAssets().open("MusicCSV/MusicConfig.csv");
+            }
+
+            BufferedReader reader = new BufferedReader(new InputStreamReader(inputStream));
+            String line;
+
+            while ((line = reader.readLine()) != null) {
+                if (line.startsWith("Order") || line.trim().isEmpty()) {
+                    updatedFileLines.add(line);
+                    continue;
+                }
+
+                String[] parts = line.split(",");
+                if (parts.length >= 6 && parts[1].trim().equalsIgnoreCase(currentSongName.trim())) {
+                    int oldCompletion = Integer.parseInt(parts[4].trim());
+                    int oldMaxCombo = Integer.parseInt(parts[5].trim());
+
+                    // 核心逻辑：只有新成绩超越历史纪录时才触发覆写更新
+                    if (newCompletion > oldCompletion) {
+                        parts[3] = newRank;
+                        parts[4] = String.valueOf(newCompletion);
+                    }
+                    if (newMaxCombo > oldMaxCombo) {
+                        parts[5] = String.valueOf(newMaxCombo);
+                    }
+
+                    StringBuilder sb = new StringBuilder();
+                    for (int i = 0; i < parts.length; i++) {
+                        sb.append(parts[i]);
+                        if (i < parts.length - 1) sb.append(",");
+                    }
+                    line = sb.toString();
+                }
+                updatedFileLines.add(line);
+            }
+            reader.close();
+            inputStream.close();
+
+            // 覆写进手机本地私有数据存储区中
+            FileOutputStream fos = openFileOutput("MusicConfig.csv", Context.MODE_PRIVATE);
+            PrintWriter writer = new PrintWriter(fos);
+            for (String savedLine : updatedFileLines) {
+                writer.println(savedLine);
+            }
+            writer.flush();
+            writer.close();
+            fos.close();
+
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
     }
 }
