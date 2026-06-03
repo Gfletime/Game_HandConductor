@@ -1,9 +1,4 @@
 Order,MusicName,MusicPageFaceFile,BetterScore,BetterFinish,MaxCombo
-0,song1,null,,0,0
-1,song2,null,S,89,14
-2,song3,null,A,69,18
-3,song4,null,B,95,12
-4,song5,null,C,39,13
-5,song6,null,D,99,12
-
-
+0,song1,Image/MusicPageFace/luminence.png,,0,0
+1,song2,Image/MusicPageFace/whiteking.png,S,89,14
+2,song3,Image/MusicPageFace/xnn.png,A,69,18
