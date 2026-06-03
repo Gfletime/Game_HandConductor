@@ -153,7 +153,7 @@ public class G0_Activity extends AppCompatActivity {
 
     private void loadAndBindAssetCover(ImageView imageView, String fileName) {
         if (fileName == null || fileName.isEmpty() || "default".equalsIgnoreCase(fileName)) {
-            imageView.setImageResource(R.mipmap.ic_launcher);
+            imageView.setImageResource(R.mipmap.xnn);
         } else {
             try {
                 InputStream is = getAssets().open("Image/MusicPageFace/" + fileName);
@@ -162,7 +162,7 @@ public class G0_Activity extends AppCompatActivity {
                 is.close();
             } catch (Exception e) {
                 e.printStackTrace();
-                imageView.setImageResource(R.mipmap.ic_launcher);
+                imageView.setImageResource(R.mipmap.xnn);
             }
         }
     }
@@ -290,16 +290,13 @@ public class G0_Activity extends AppCompatActivity {
 
             is.close();
 
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-
-                ivBackground.setRenderEffect(
-                        RenderEffect.createBlurEffect(
-                                60f,
-                                60f,
-                                Shader.TileMode.CLAMP
-                        )
-                );
-            }
+            ivBackground.setRenderEffect(
+                    RenderEffect.createBlurEffect(
+                            60f,
+                            60f,
+                            Shader.TileMode.CLAMP
+                    )
+            );
 
         } catch (IOException e) {
             e.printStackTrace();

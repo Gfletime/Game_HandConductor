@@ -1,4 +1,4 @@
 Order,MusicName,MusicPageFaceFile,BetterScore,BetterFinish,MaxCombo
-0,song1,Image/MusicPageFace/luminence.png,,0,0
-1,song2,Image/MusicPageFace/whiteking.png,S,89,14
-2,song3,Image/MusicPageFace/xnn.png,A,69,18
+0,song1,luminence.png,,0,0
+1,song2,whiteking.png,S,89,14
+2,song3,xnn.png,A,69,18

@@ -49,16 +49,13 @@ public class MainActivity extends AppCompatActivity {
 
             is.close();
 
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-
-                bgImage.setRenderEffect(
-                        RenderEffect.createBlurEffect(
-                                30f,
-                                30f,
-                                Shader.TileMode.CLAMP
-                        )
-                );
-            }
+            bgImage.setRenderEffect(
+                    RenderEffect.createBlurEffect(
+                            30f,
+                            30f,
+                            Shader.TileMode.CLAMP
+                    )
+            );
 
         } catch (IOException e) {
             e.printStackTrace();
@@ -73,16 +70,6 @@ public class MainActivity extends AppCompatActivity {
         bgImage = findViewById(R.id.bgImage);
 
         loadRandomBackground();
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            bgImage.setRenderEffect(
-                    RenderEffect.createBlurEffect(
-                            30f,
-                            30f,
-                            Shader.TileMode.CLAMP
-                    )
-            );
-        }
 
         // 1. 绑定UI组件
         Button btnStartGame = findViewById(R.id.btn_start_game);
