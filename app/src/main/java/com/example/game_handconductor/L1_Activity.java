@@ -1,5 +1,11 @@
 package com.example.game_handconductor;
 
+import android.animation.Animator;
+import android.animation.AnimatorListenerAdapter;
+import android.animation.ValueAnimator;
+import android.content.Context;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.os.Bundle;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -16,19 +22,23 @@ import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.LinearSnapHelper;
 import androidx.recyclerview.widget.RecyclerView;
 
+import java.io.BufferedReader;
+import java.io.File;
+import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.util.ArrayList;
 import java.util.List;
 
 public class L1_Activity extends AppCompatActivity {
 
-    // 图片数据模型
+    // 【数据模型升级】：将固定的整型图片 ID 更改为指向本地沙盒的文件名路径字符串
     class PhotoRecord {
-        int imageResId;
+        String fileName;
         String shootTime;
         String songName;
 
-        public PhotoRecord(int imageResId, String shootTime, String songName) {
-            this.imageResId = imageResId;
+        public PhotoRecord(String fileName, String shootTime, String songName) {
+            this.fileName = fileName;
             this.shootTime = shootTime;
             this.songName = songName;
         }
@@ -55,13 +65,8 @@ public class L1_Activity extends AppCompatActivity {
 
         btnBack.setOnClickListener(v -> finish()); // 返回主界面
 
-        // 2. 准备测试数据
-        photoList = new ArrayList<>();
-        // 替换为你真实的截图资源
-        photoList.add(new PhotoRecord(R.mipmap.ic_launcher, "2026/6/1 13:20", "Track 1 - 启航"));
-        photoList.add(new PhotoRecord(R.mipmap.ic_launcher, "2026/6/2 09:15", "Track 2 - 激流"));
-        photoList.add(new PhotoRecord(R.mipmap.ic_launcher, "2026/6/3 21:40", "Track 3 - 宁静"));
-        photoList.add(new PhotoRecord(R.mipmap.ic_launcher, "2026/6/5 18:05", "Track 4 - 终焉"));
+        // 2. 【核心打通】：调用本地沙盒解析器，替换原本写死的 photoList.add() 测试数据
+        photoList = loadCaptureConfig();
 
         // 3. 配置 RecyclerView
         layoutManager = new LinearLayoutManager(this);
@@ -116,6 +121,47 @@ public class L1_Activity extends AppCompatActivity {
                 rvPhotos.getViewTreeObserver().removeOnGlobalLayoutListener(this);
             }
         });
+    }
+
+    /**
+     * 【新增增量引擎】：解析应用内部存储空间的 CaptureConfig.csv 数据
+     */
+    private List<PhotoRecord> loadCaptureConfig() {
+        List<PhotoRecord> records = new ArrayList<>();
+        try {
+            File csvFile = new File(getFilesDir(), "CaptureConfig.csv");
+            // 如果文件还不存在（证明玩家从未触发过截图），直接返回空列表安全兜底
+            if (!csvFile.exists()) {
+                return records;
+            }
+
+            InputStream is = openFileInput("CaptureConfig.csv");
+            BufferedReader reader = new BufferedReader(new InputStreamReader(is));
+            String line;
+
+            while ((line = reader.readLine()) != null) {
+                // 自动跳过 CSV 的头部表头或空白空行
+                if (line.startsWith("FileName") || line.trim().isEmpty()) {
+                    continue;
+                }
+
+                String[] parts = line.split(",");
+                if (parts.length >= 3) {
+                    String fileName = parts[0].trim();
+                    String songName = parts[1].trim();
+                    String shootTime = parts[2].trim();
+
+                    // 核心技术点：利用 records.add(0, ...) 在头部逆向插入
+                    // 这样可以让玩家最新截好的精彩瞬间永远排在相册最上方，更符合现代手游相册体验
+                    records.add(0, new PhotoRecord(fileName, shootTime, songName));
+                }
+            }
+            reader.close();
+            is.close();
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        return records;
     }
 
     /**
@@ -181,7 +227,24 @@ public class L1_Activity extends AppCompatActivity {
 
         @Override
         public void onBindViewHolder(@NonNull PhotoViewHolder holder, int position) {
-            holder.ivPhoto.setImageResource(list.get(position).imageResId);
+            PhotoRecord record = list.get(position);
+
+            // 顺着记录的文件名，去应用内部私有沙盒空间检索对应的物理图像
+            File imgFile = new File(getFilesDir(), record.fileName);
+
+            if (imgFile.exists()) {
+                // 【性能防崩溃优化点】：由于真机全屏音符+摄像头叠图分辨率极高，
+                // 如果不做处理直接用原始比例狂刷列表极易引发堆内存溢出(OOM)。
+                // 这里采用 inSampleSize=2 进行高能硬件级二次降采样解码（宽高减半，内存缩减至 1/4），大幅度提升滑动帧率。
+                BitmapFactory.Options options = new BitmapFactory.Options();
+                options.inSampleSize = 2;
+
+                Bitmap bitmap = BitmapFactory.decodeFile(imgFile.getAbsolutePath(), options);
+                holder.ivPhoto.setImageBitmap(bitmap);
+            } else {
+                // 容错安全伞：如果图片文件不幸被误删，展示小机器人默认图标兜底
+                holder.ivPhoto.setImageResource(R.mipmap.ic_launcher);
+            }
         }
 
         @Override

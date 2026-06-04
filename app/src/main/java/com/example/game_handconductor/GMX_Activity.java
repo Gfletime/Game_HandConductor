@@ -12,17 +12,21 @@ import android.graphics.Color;
 import android.graphics.Paint;
 import android.graphics.Path;
 import android.graphics.RectF;
+import android.os.Build; // 补全：系统版本判定
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
 import android.util.Size;
+import android.view.PixelCopy; // 补全：高保真硬件图层复制API
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.Window; // 补全：窗口对象句柄
 import android.widget.Button;
 import android.widget.FrameLayout;
 import android.widget.ProgressBar;
 import android.widget.TextView;
+import android.widget.Toast; // 补全：轻量级屏幕弹窗通知
 
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
@@ -44,28 +48,180 @@ import com.google.mediapipe.tasks.vision.core.RunningMode;
 import com.google.mediapipe.tasks.vision.handlandmarker.HandLandmarker;
 import com.google.mediapipe.tasks.vision.handlandmarker.HandLandmarkerResult;
 
+import java.io.BufferedReader;
+import java.io.File; // 补全：文件沙盒定位
+import java.io.FileOutputStream; // 补全：图片文件输出字节流
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.io.PrintWriter; // 补全：CSV行文本追加打印器
+import java.text.SimpleDateFormat; // 补全：音游时间格式化工具
 import java.util.ArrayList;
+import java.util.Date; // 补全：捕获当前时间对象
 import java.util.List;
+import java.util.Locale; // 补全：本地化环境配置
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 public class GMX_Activity extends AppCompatActivity {
 
+    // === 【核心触发函数】：拍摄屏幕画面（音符 + 前置摄像头画面完美叠加） ===
+    // === 【终极完美版】：精确定位子视图叠加，彻底解决黑底覆盖的截屏函数 ===
+    public void ShotScreen() {
+        // 1. 自动生成当前的拍摄时间戳与文件名 (严格对齐 2026/6/2 13:15 格式)
+        SimpleDateFormat sdf = new SimpleDateFormat("yyyy/M/d HH:mm", Locale.getDefault());
+        String currentTimeStr = sdf.format(new Date());
+
+        String fileTimestamp = new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(new Date());
+        String imageFileName = "snap_" + fileTimestamp + ".jpg";
+
+        // 2. 寻找布局中的 CameraX 预览组件 PreviewView
+        PreviewView previewView = findViewById(R.id.viewFinder);
+        if (previewView == null) return;
+
+        // 3. 提取当前纯净的前置摄像头预览画面
+        Bitmap cameraBitmap = previewView.getBitmap();
+        if (cameraBitmap == null) {
+            // 容错提示：如果为 null 说明相机未就绪或未开启兼容的 TextureView 模式
+            runOnUiThread(() -> Toast.makeText(GMX_Activity.this, "截图失败：相机未就绪，请确保 PreviewView 开启了 compatible 模式", Toast.LENGTH_LONG).show());
+            return;
+        }
+
+        // 4. 以相机真实人脸画面作为底层画板，创建一个高保真可写位图
+        Bitmap finalBitmap = cameraBitmap.copy(Bitmap.Config.ARGB_8888, true);
+        Canvas canvas = new Canvas(finalBitmap);
+
+        if (previewView.getParent() instanceof ViewGroup) {
+            ViewGroup rootLayout = (ViewGroup) previewView.getParent();
+            for (int i = 0; i < rootLayout.getChildCount(); i++) {
+                View child = rootLayout.getChildAt(i);
+
+                // 极其关键：排除掉相机预览组件本身，只把上层的音符组件、UI 文本绘制到画布上
+                if (child != previewView && child.getVisibility() == View.VISIBLE) {
+                    canvas.save();
+                    // 依据各个子组件在物理屏幕上的相对坐标进行精准平移对齐绘制
+                    canvas.translate(child.getLeft(), child.getTop());
+                    child.draw(canvas);
+                    canvas.restore();
+                }
+            }
+        }
+
+        // 5. 开启异步子线程，将带有前置人脸加音符完美融合的照片写入本地私由沙盒
+        final Bitmap bitmapToSave = finalBitmap;
+        new Thread(() -> {
+            try {
+                // A. 将高清合成后的照片存入沙盒物理储存
+                File imageFile = new File(getFilesDir(), imageFileName);
+                FileOutputStream fos = new FileOutputStream(imageFile);
+                // 采用 90% 质量压缩 JPEG
+                bitmapToSave.compress(Bitmap.CompressFormat.JPEG, 90, fos);
+                fos.flush();
+                fos.close();
+
+                // 极其重要：音游高频触发截图极易发生内存溢出，必须手动调用 recycle 释放物理内存
+                bitmapToSave.recycle();
+
+                // B. 追加改写本地数据总账本 CaptureConfig.csv
+                File csvFile = new File(getFilesDir(), "CaptureConfig.csv");
+                boolean isNewFile = !csvFile.exists();
+
+                FileOutputStream csvFos = new FileOutputStream(csvFile, true);
+                PrintWriter writer = new PrintWriter(csvFos);
+
+                if (isNewFile) {
+                    writer.println("FileName,MusicName,CaptureTime"); // 初始化 CSV 标准表头
+                }
+
+                // 直接读取 GMX 中的全局变量 songName，并过滤可能引发 CSV 错位的逗号
+                String safeSongName = (songName != null) ? songName.replace(",", " ") : "UnknownSong";
+                writer.println(imageFileName + "," + safeSongName + "," + currentTimeStr);
+
+                writer.flush();
+                writer.close();
+                csvFos.close();
+
+                // C. 切回 UI 主线程通知玩家
+                //runOnUiThread(() -> Toast.makeText(GMX_Activity.this, "游戏精彩瞬间已完美封存！", Toast.LENGTH_SHORT).show());
+
+            } catch (Exception e) {
+                e.printStackTrace();
+                runOnUiThread(() -> Toast.makeText(GMX_Activity.this, "存储失败：沙盒空间无写入权限", Toast.LENGTH_SHORT).show());
+            }
+        }).start();
+    }
+
+    /**
+     * 【内部配套工具】：负责将图片和 CSV 数据无缝锁入本地应用内部沙盒存储（子线程运行）
+     */
+    private void saveSnapshotData(Bitmap bitmap, String fileName, String timeRecord) {
+        try {
+            // A. 保存高保真图片到沙盒内部私有空间 (Context.MODE_PRIVATE)
+            File imageFile = new File(getFilesDir(), fileName);
+            FileOutputStream fos = new FileOutputStream(imageFile);
+            // 采用 90% 质量压缩 JPEG，在画质与内部存储空间占用之间取得最佳工业级平衡
+            bitmap.compress(Bitmap.CompressFormat.JPEG, 90, fos);
+            fos.flush();
+            fos.close();
+
+            // 释放内存，防止音游后续对局发生严重内存溢出 (OOM)
+            bitmap.recycle();
+
+            // B. 建立并改写索引账本 CaptureConfig.csv (实现歌名、时间、图片名的一体化增量绑定)
+            File csvFile = new File(getFilesDir(), "CaptureConfig.csv");
+            boolean isNewFile = !csvFile.exists();
+
+            // 以追加（append=true）的模式打开本地文件流
+            FileOutputStream csvFos = new FileOutputStream(csvFile, true);
+            PrintWriter writer = new PrintWriter(csvFos);
+
+            // 如果是初次全新建立，为其自动架设正规 CSV 标题表头
+            if (isNewFile) {
+                writer.println("FileName,MusicName,CaptureTime");
+            }
+
+            // 【数据闭环】：写入当前截图的数据行。songName 为 GMX 全局变量直接读取。
+            // 替换掉文本里潜在的逗号，防止 CSV 格式发生列解析错位
+            String safeSongName = (songName != null) ? songName.replace(",", " ") : "UnknownSong";
+            writer.println(fileName + "," + safeSongName + "," + timeRecord);
+
+            writer.flush();
+            writer.close();
+            csvFos.close();
+
+            /*// C. 弹窗通知玩家（切回主线程进行 UI 刷新）
+            runOnUiThread(() -> {
+                Toast.makeText(GMX_Activity.this, "对局截图已成功保存至沙盒!", Toast.LENGTH_SHORT).show();
+            });*/
+
+        } catch (Exception e) {
+            e.printStackTrace();
+            runOnUiThread(() -> {
+                Toast.makeText(GMX_Activity.this, "保存失败: 内部存储空间由于IO异常被拒绝", Toast.LENGTH_SHORT).show();
+            });
+        }
+    }
     private class ScoreManager {
         int currentCombo = 0, maxCombo = 0, hits = 0,miss=0;
+        int fevernote=0;
         //public int totalNote=0;
-        int totalNotes = 15;
+        int totalNotes = 0;
 
         void addHit() {
             hits++;
             currentCombo++;
+            fevernote++;
             if (currentCombo > maxCombo) maxCombo = currentCombo;
+            if(fevernote>1) {
+                ShotScreen();
+                fevernote=0;
+            }
             updateComboUI();
         }
 
         void resetCombo() {
             miss++;
             currentCombo = 0;
+            fevernote=0;
             updateComboUI();
         }
     }
