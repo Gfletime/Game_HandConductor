@@ -5,6 +5,7 @@ import android.animation.Animator;
 import android.animation.AnimatorListenerAdapter;
 import android.animation.ValueAnimator;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
@@ -525,6 +526,7 @@ public class GMX_Activity extends AppCompatActivity {
         isGamePaused = false;
 
         if (mediaPlayer != null) {
+            adjustVolumeOnTheFly();
             mediaPlayer.start();
         }
         if (progressAnimator != null && progressAnimator.isPaused()) {
@@ -555,12 +557,40 @@ public class GMX_Activity extends AppCompatActivity {
             mediaPlayer.setDataSource(afd.getFileDescriptor(), afd.getStartOffset(), afd.getLength());
             afd.close();
             mediaPlayer.prepare();
+
+            SharedPreferences sharedPreferences = getSharedPreferences("GameSettings", MODE_PRIVATE);
+
+            // 3. 读取全局音量。第二个参数 100 是兜底默认值（即第一次进游戏未设置音量时满音量播放）
+            int globalVolume = sharedPreferences.getInt("global_volume", 100);
+
+            // 4. 音量高能转换：将 0~100 的整数值缩放到 0.0f~1.0f 浮点数区间
+            float volumeRatio = globalVolume / 100f;
+
+            // 5. 将计算好的对数/线性比例音量注入当前播放器（分别控制左声道和右声道）
+            if (mediaPlayer != null) {
+                mediaPlayer.setVolume(volumeRatio, volumeRatio);
+            }
+
         } catch (Exception e) {
             android.util.Log.e("AudioError", "MediaPlayer 装载音频失败: " + songFileName);
             e.printStackTrace();
         }
     }
 
+    private void adjustVolumeOnTheFly() {
+        SharedPreferences sharedPreferences = getSharedPreferences("GameSettings", MODE_PRIVATE);
+
+        // 3. 读取全局音量。第二个参数 100 是兜底默认值（即第一次进游戏未设置音量时满音量播放）
+        int globalVolume = sharedPreferences.getInt("global_volume", 100);
+
+        // 4. 音量高能转换：将 0~100 的整数值缩放到 0.0f~1.0f 浮点数区间
+        float volumeRatio = globalVolume / 100f;
+
+        // 5. 将计算好的对数/线性比例音量注入当前播放器（分别控制左声道和右声道）
+        if (mediaPlayer != null) {
+            mediaPlayer.setVolume(volumeRatio, volumeRatio);
+        }
+    }
     private void startMusic() {
         if (mediaPlayer != null && !mediaPlayer.isPlaying()) {
             mediaPlayer.start();
