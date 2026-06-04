@@ -14,7 +14,6 @@ import android.os.Bundle;
 import android.view.View;
 import android.view.animation.OvershootInterpolator;
 import android.widget.Button;
-import android.widget.ImageSwitcher;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
@@ -32,31 +31,35 @@ import java.util.List;
 public class FX_Activity extends AppCompatActivity {
 
     private ImageView vMainCover;
-    private String songName;
-    private int songCoverId;
-
     private ImageView ivBackground;
+    private String songName;
+    private String songCoverFile; // 重构修复：将 int ID 升级为 String 资产文件名
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_fx);
 
-        vMainCover = findViewById(R.id.iv_fx_cover);
-
-        ivBackground = findViewById(R.id.iv_background);
-
-        updateSongCover(songCoverId);
-
         // 1. 获取从 GMX 传过来的结算数据
         Intent intent = getIntent();
         songName = intent.getStringExtra("SONG_NAME");
-        songCoverId = intent.getIntExtra("SONG_COVER_ID", R.mipmap.ic_launcher);
+
+        // 核心修复点：全面对接新架构，接收字符串性质的资产封面图片名称
+        songCoverFile = intent.getStringExtra("SONG_COVER_FILE");
+        if (songCoverFile == null || songCoverFile.isEmpty()) {
+            songCoverFile = "default";
+        }
 
         String rank = intent.getStringExtra("RANK");
         int hits = intent.getIntExtra("HITS", 0);
         int maxCombo = intent.getIntExtra("MAX_COMBO", 0);
         int misses = intent.getIntExtra("MISSES", 0);
+
+        vMainCover = findViewById(R.id.iv_fx_cover);
+        ivBackground = findViewById(R.id.iv_backgroundfx);
+
+        // 启动高能资产图像渲染与高斯模糊引擎
+        updateSongCover(songCoverFile);
 
         // 兼容性数据提取：完美支持 Integer 与带有 % 符号的 String
         int completion = 0;
@@ -76,10 +79,8 @@ public class FX_Activity extends AppCompatActivity {
         // 智能执行高分纪录本地安全覆写
         saveStatsToLocalCsv(songName, rank, completion, maxCombo);
 
-        // 2. 绑定 UI 组件
-        ImageView ivCover = findViewById(R.id.iv_fx_cover);
+        // 2. 绑定 UI 组件 (彻底剔除了原本此处对 iv_fx_cover 的冗余重复绑定与二次设置)
         TextView tvRank = findViewById(R.id.tv_fx_rank);
-
         TextView labelCompletion = (TextView) ((LinearLayout) findViewById(R.id.tv_fx_completion).getParent()).getChildAt(0);
         TextView labelHits = (TextView) ((LinearLayout) findViewById(R.id.tv_fx_hits).getParent()).getChildAt(0);
         TextView labelCombo = (TextView) ((LinearLayout) findViewById(R.id.tv_fx_combo).getParent()).getChildAt(0);
@@ -93,8 +94,6 @@ public class FX_Activity extends AppCompatActivity {
         Button btnToG0 = findViewById(R.id.btn_fx_to_g0);
         Button btnReplay = findViewById(R.id.btn_fx_replay);
 
-        // 设置封面与评级
-        ivCover.setImageResource(songCoverId);
         if (rank != null) {
             tvRank.setText(rank);
             applyRankColoring(tvRank, rank);
@@ -103,7 +102,6 @@ public class FX_Activity extends AppCompatActivity {
         // ================= 3. 开始执行入场动画 =================
         hideViewsInitially(tvRank, labelCompletion, tvCompletion, labelHits, tvHits,
                 labelCombo, tvCombo, labelMisses, tvMisses, btnToG0, btnReplay);
-
         long delay = 300;
 
         // 评级弹性弹出
@@ -113,19 +111,15 @@ public class FX_Activity extends AppCompatActivity {
                 .setStartDelay(delay)
                 .setInterpolator(new OvershootInterpolator(2.0f))
                 .start();
-
         delay += 400;
 
         // 数据行依次跑字滚动渐显
         animateRow(labelCompletion, tvCompletion, completion, delay, true);
         delay += 250;
-
         animateRow(labelHits, tvHits, hits, delay, false);
         delay += 250;
-
         animateRow(labelCombo, tvCombo, maxCombo, delay, false);
         delay += 250;
-
         animateRow(labelMisses, tvMisses, misses, delay, false);
         delay += 400;
 
@@ -147,33 +141,39 @@ public class FX_Activity extends AppCompatActivity {
             Intent gmxIntent = new Intent(FX_Activity.this, GMX_Activity.class);
             gmxIntent.putExtra("SONG_NAME", songName);
             gmxIntent.putExtra("CSV_NAME", songName + ".csv");
-            gmxIntent.putExtra("SONG_COVER_ID", songCoverId);
+            gmxIntent.putExtra("SONG_COVER_FILE", songCoverFile); // 将最新正确的文件名传递回对局页
             startActivity(gmxIntent);
             finish();
         });
     }
-//    private void loadAndBindAssetCover(ImageView imageView, String fileName) {
-//        if (fileName == null || fileName.isEmpty() || "default".equalsIgnoreCase(fileName)) {
-//            imageView.setImageResource(R.mipmap.xnn);
-//        } else {
-//            try {
-//                InputStream is = getAssets().open("Image/MusicPageFace/" + fileName);
-//                Bitmap bitmap = BitmapFactory.decodeStream(is);
-//                imageView.setImageBitmap(bitmap);
-//                is.close();
-//            } catch (Exception e) {
-//                e.printStackTrace();
-//                imageView.setImageResource(R.mipmap.xnn);
-//            }
-//        }
-//    }
-    private void updateSongCover(int coverResId) {
 
-//        loadAndBindAssetCover(vMainCover,songName);
+    /**
+     * 重构打通：解耦并还原的 Assets 沙盒图片高能动态解码加载引擎
+     */
+    private void loadAndBindAssetCover(ImageView imageView, String fileName) {
+        if (fileName == null || fileName.isEmpty() || "default".equalsIgnoreCase(fileName)) {
+            imageView.setImageResource(R.mipmap.ic_launcher);
+        } else {
+            try {
+                InputStream is = getAssets().open("Image/MusicPageFace/" + fileName);
+                Bitmap bitmap = BitmapFactory.decodeStream(is);
+                imageView.setImageBitmap(bitmap);
+                is.close();
+            } catch (Exception e) {
+                e.printStackTrace();
+                imageView.setImageResource(R.mipmap.ic_launcher);
+            }
+        }
+    }
 
-        vMainCover.setImageResource(coverResId);
-        ivBackground.setImageResource(coverResId);
+    /**
+     * 重构修复：让封面卡片和背景大图全面通过流加载，彻底解决图片无法替换的 Bug
+     */
+    private void updateSongCover(String fileName) {
+        loadAndBindAssetCover(vMainCover, fileName);
+        loadAndBindAssetCover(ivBackground, fileName);
 
+        // Android 12+ 强力硬件级背景磨砂模糊特效
         ivBackground.setRenderEffect(
                 RenderEffect.createBlurEffect(
                         60f,
@@ -183,7 +183,7 @@ public class FX_Activity extends AppCompatActivity {
         );
     }
 
-    // --- 动画引擎内部逻辑封装 ---
+    // --- 动画辅助方法封装 ---
     private void hideViewsInitially(View... views) {
         for (int i = 0; i < views.length; i++) {
             views[i].setAlpha(0f);
@@ -263,7 +263,6 @@ public class FX_Activity extends AppCompatActivity {
         }
 
         List<String> updatedFileLines = new ArrayList<>();
-
         try {
             File localCachedFile = new File(getFilesDir(), "MusicConfig.csv");
             InputStream inputStream;
@@ -275,7 +274,6 @@ public class FX_Activity extends AppCompatActivity {
 
             BufferedReader reader = new BufferedReader(new InputStreamReader(inputStream));
             String line;
-
             while ((line = reader.readLine()) != null) {
                 if (line.startsWith("Order") || line.trim().isEmpty()) {
                     updatedFileLines.add(line);
@@ -287,7 +285,6 @@ public class FX_Activity extends AppCompatActivity {
                     int oldCompletion = Integer.parseInt(parts[4].trim());
                     int oldMaxCombo = Integer.parseInt(parts[5].trim());
 
-                    // 核心逻辑：只有新成绩超越历史纪录时才触发覆写更新
                     if (newCompletion > oldCompletion) {
                         parts[3] = newRank;
                         parts[4] = String.valueOf(newCompletion);
@@ -308,7 +305,6 @@ public class FX_Activity extends AppCompatActivity {
             reader.close();
             inputStream.close();
 
-            // 覆写进手机本地私有数据存储区中
             FileOutputStream fos = openFileOutput("MusicConfig.csv", Context.MODE_PRIVATE);
             PrintWriter writer = new PrintWriter(fos);
             for (String savedLine : updatedFileLines) {
@@ -317,7 +313,6 @@ public class FX_Activity extends AppCompatActivity {
             writer.flush();
             writer.close();
             fos.close();
-
         } catch (Exception e) {
             e.printStackTrace();
         }

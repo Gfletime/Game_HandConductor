@@ -78,6 +78,8 @@ public class GMX_Activity extends AppCompatActivity {
     private ValueAnimator progressAnimator;
     private FrameLayout noteContainer;
     private String songName;
+
+    private String SongFaceFile;
     private int songCoverId;
     //private int currentMaxCombo = 0;
 
@@ -175,7 +177,7 @@ public class GMX_Activity extends AppCompatActivity {
 
         Intent intent = getIntent();
         songName = intent.getStringExtra("SONG_NAME");
-        songCoverId = intent.getIntExtra("SONG_COVER_ID", R.mipmap.ic_launcher);
+        SongFaceFile = intent.getStringExtra("SONG_COVER_FILE");
 
         pbSongProgress = findViewById(R.id.pb_song_progress);
         TextView tvMaxCombo = findViewById(R.id.tv_max_combo);
@@ -540,6 +542,7 @@ public class GMX_Activity extends AppCompatActivity {
         intent.putExtra("COMPLETION", (int)((float)scoreManager.hits / scoreManager.totalNotes * 100) + "%");
         intent.putExtra("MISSES",scoreManager.miss);
         intent.putExtra("SONG_NAME",songName);
+        intent.putExtra("SONG_COVER_FILE",SongFaceFile);
         startActivity(intent);
         finish();
     }
