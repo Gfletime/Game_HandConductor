@@ -53,9 +53,14 @@ public class G0_Activity extends AppCompatActivity {
     private TextView tvMainRank;
     private List<Song> songList;
     private Song currentSelectedSong;
-    private SongAdapter adapter; // 提升为全局变量以支持动态刷新
+    private SongAdapter adapter;
 
     private ImageView ivBackground;
+
+    // 【重构核心点一】：提升为全局变量，用于在 onResume 生命周期中执行位置强行校准与对齐
+    private RecyclerView rvSongList;
+    private LinearLayoutManager layoutManager;
+    private LinearSnapHelper snapHelper;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -68,21 +73,23 @@ public class G0_Activity extends AppCompatActivity {
         tvMaxCombo = findViewById(R.id.tv_max_combo);
         tvMainRank = findViewById(R.id.tv_main_rank);
 
+        // 【核心修复点二】：补齐原代码缺失的背景绑定，彻底消灭点击图片引发的 NullPointerException 闪退
+        ivBackground = findViewById(R.id.iv_background);
+
         Button btnBack = findViewById(R.id.btn_back_title);
         Button btnSettings = findViewById(R.id.btn_goto_settings);
 
         btnBack.setOnClickListener(v -> finish());
         btnSettings.setOnClickListener(v -> startActivity(new Intent(G0_Activity.this, S1_Activity.class)));
 
-        // 初始化空列表与适配器
         songList = new ArrayList<>();
         adapter = new SongAdapter(songList);
 
-        RecyclerView rvSongList = findViewById(R.id.rv_song_list);
-        LinearLayoutManager layoutManager = new LinearLayoutManager(this);
+        rvSongList = findViewById(R.id.rv_song_list);
+        layoutManager = new LinearLayoutManager(this);
         rvSongList.setLayoutManager(layoutManager);
 
-        LinearSnapHelper snapHelper = new LinearSnapHelper();
+        snapHelper = new LinearSnapHelper();
         snapHelper.attachToRecyclerView(rvSongList);
         rvSongList.setAdapter(adapter);
 
@@ -128,7 +135,7 @@ public class G0_Activity extends AppCompatActivity {
         });
     }
 
-    // 【生命周期核心修复】：每次重新回到选歌页面，强制无条件重载本地最新纪录并刷新 UI
+    // 【生命周期核心同步】：每次重新回到选歌页面，不仅重载数据，还强制轮盘物理对齐正确档位
     @Override
     protected void onResume() {
         super.onResume();
@@ -137,16 +144,25 @@ public class G0_Activity extends AppCompatActivity {
         adapter.notifyDataSetChanged();
 
         if (!songList.isEmpty()) {
-            // 如果之前有选中的歌曲，保持高亮选中状态，否则默认第一首
+            int targetPosition = 0; // 记录需要对齐的档位索引
+
             if (currentSelectedSong != null) {
-                for (Song s : songList) {
+                for (int i = 0; i < songList.size(); i++) {
+                    Song s = songList.get(i);
                     if (s.name.equalsIgnoreCase(currentSelectedSong.name)) {
                         updateLeftPanel(s);
+                        targetPosition = i; // 锁死目标歌曲索引位置
                         break;
                     }
                 }
             } else {
                 updateLeftPanel(songList.get(0));
+            }
+
+            // 【核心修复点三】：利用主线程空闲队列，强行命令右侧轮盘物理滚动到当前选中的歌曲位置，斩断错位现象
+            final int finalPos = targetPosition;
+            if (rvSongList != null) {
+                rvSongList.post(() -> rvSongList.scrollToPosition(finalPos));
             }
         }
     }
@@ -275,29 +291,25 @@ public class G0_Activity extends AppCompatActivity {
     }
 
     private void updateBlurBackground(String fileName) {
-
         try {
+            // 【核心修复点四】：将模糊图的 Assets 统一归入绝对正确的 "Image/MusicPageFace/" 路径下
+            InputStream is = getAssets().open("Image/MusicPageFace/" + fileName);
+            Bitmap bitmap = BitmapFactory.decodeStream(is);
 
-            InputStream is =
-                    getAssets().open(
-                            "covers/" + fileName
+            // 注入防御性空安全校验，双重锁死绝不抛出异常，绝不闪退
+            if (ivBackground != null) {
+                ivBackground.setImageBitmap(bitmap);
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    ivBackground.setRenderEffect(
+                            RenderEffect.createBlurEffect(
+                                    60f,
+                                    60f,
+                                    Shader.TileMode.CLAMP
+                            )
                     );
-
-            Bitmap bitmap =
-                    BitmapFactory.decodeStream(is);
-
-            ivBackground.setImageBitmap(bitmap);
-
+                }
+            }
             is.close();
-
-            ivBackground.setRenderEffect(
-                    RenderEffect.createBlurEffect(
-                            60f,
-                            60f,
-                            Shader.TileMode.CLAMP
-                    )
-            );
-
         } catch (IOException e) {
             e.printStackTrace();
         }
