@@ -20,6 +20,7 @@ import android.widget.TextView;
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.recyclerview.widget.LinearLayoutManager;
+import androidx.recyclerview.widget.LinearSmoothScroller;
 import androidx.recyclerview.widget.LinearSnapHelper;
 import androidx.recyclerview.widget.RecyclerView;
 
@@ -53,6 +54,7 @@ public class G0_Activity extends AppCompatActivity {
     private TextView tvMainRank;
     private List<Song> songList;
     private Song currentSelectedSong;
+    private int currentSelectedPosition = RecyclerView.NO_POSITION;
     private SongAdapter adapter;
 
     private ImageView ivBackground;
@@ -86,7 +88,7 @@ public class G0_Activity extends AppCompatActivity {
         adapter = new SongAdapter(songList);
 
         rvSongList = findViewById(R.id.rv_song_list);
-        layoutManager = new LinearLayoutManager(this);
+        layoutManager = new CenterLinearLayoutManager();
         rvSongList.setLayoutManager(layoutManager);
 
         snapHelper = new LinearSnapHelper();
@@ -109,7 +111,7 @@ public class G0_Activity extends AppCompatActivity {
                     if (snapView != null) {
                         int position = layoutManager.getPosition(snapView);
                         if (position >= 0 && position < songList.size()) {
-                            updateLeftPanel(songList.get(position));
+                            updateLeftPanel(songList.get(position), position);
                         }
                     }
                 }
@@ -145,26 +147,69 @@ public class G0_Activity extends AppCompatActivity {
 
         if (!songList.isEmpty()) {
             int targetPosition = 0; // 记录需要对齐的档位索引
+            boolean foundSelectedSong = false;
 
             if (currentSelectedSong != null) {
+                if (currentSelectedPosition >= 0 && currentSelectedPosition < songList.size()) {
+                    Song indexedSong = songList.get(currentSelectedPosition);
+                    if (indexedSong.name.equalsIgnoreCase(currentSelectedSong.name)
+                            && indexedSong.coverFileName.equalsIgnoreCase(currentSelectedSong.coverFileName)) {
+                        updateLeftPanel(indexedSong, currentSelectedPosition);
+                        centerSongAtPosition(currentSelectedPosition, false);
+                        return;
+                    }
+                }
+
                 for (int i = 0; i < songList.size(); i++) {
                     Song s = songList.get(i);
                     if (s.name.equalsIgnoreCase(currentSelectedSong.name)) {
-                        updateLeftPanel(s);
+                        updateLeftPanel(s, i);
                         targetPosition = i; // 锁死目标歌曲索引位置
+                        foundSelectedSong = true;
                         break;
                     }
                 }
+                if (!foundSelectedSong) {
+                    updateLeftPanel(songList.get(0), 0);
+                }
             } else {
-                updateLeftPanel(songList.get(0));
+                updateLeftPanel(songList.get(0), 0);
             }
 
             // 【核心修复点三】：利用主线程空闲队列，强行命令右侧轮盘物理滚动到当前选中的歌曲位置，斩断错位现象
             final int finalPos = targetPosition;
             if (rvSongList != null) {
-                rvSongList.post(() -> rvSongList.scrollToPosition(finalPos));
+                centerSongAtPosition(finalPos, false);
             }
         }
+    }
+
+    private void centerSongAtPosition(int position, boolean smooth) {
+        if (rvSongList == null || position < 0 || position >= songList.size()) {
+            return;
+        }
+
+        rvSongList.post(() -> {
+            if (smooth) {
+                rvSongList.smoothScrollToPosition(position);
+            } else {
+                layoutManager.scrollToPositionWithOffset(position, 0);
+                rvSongList.post(() -> snapPositionToCenter(position));
+            }
+        });
+    }
+
+    private void snapPositionToCenter(int position) {
+        View targetView = layoutManager.findViewByPosition(position);
+        if (targetView == null) {
+            return;
+        }
+
+        int[] distance = snapHelper.calculateDistanceToFinalSnap(layoutManager, targetView);
+        if (distance != null) {
+            rvSongList.scrollBy(distance[0], distance[1]);
+        }
+        applyCarouselEffect(rvSongList);
     }
 
     private void loadAndBindAssetCover(ImageView imageView, String fileName) {
@@ -239,7 +284,14 @@ public class G0_Activity extends AppCompatActivity {
     }
 
     private void updateLeftPanel(Song song) {
+        updateLeftPanel(song, RecyclerView.NO_POSITION);
+    }
+
+    private void updateLeftPanel(Song song, int position) {
         currentSelectedSong = song;
+        if (position != RecyclerView.NO_POSITION) {
+            currentSelectedPosition = position;
+        }
         loadAndBindAssetCover(ivMainCover, song.coverFileName);
 
         tvSongName.setText("当前选择: " + song.name);
@@ -335,10 +387,12 @@ public class G0_Activity extends AppCompatActivity {
             loadAndBindAssetCover(holder.ivItemCover, song.coverFileName);
 
             holder.itemView.setOnClickListener(v -> {
-                updateLeftPanel(song);
-                if (holder.itemView.getParent() instanceof RecyclerView) {
-                    ((RecyclerView) holder.itemView.getParent()).smoothScrollToPosition(position);
+                int adapterPosition = holder.getAdapterPosition();
+                if (adapterPosition == RecyclerView.NO_POSITION) {
+                    return;
                 }
+                updateLeftPanel(list.get(adapterPosition), adapterPosition);
+                centerSongAtPosition(adapterPosition, true);
             });
         }
 
@@ -353,6 +407,26 @@ public class G0_Activity extends AppCompatActivity {
                 super(itemView);
                 ivItemCover = itemView.findViewById(R.id.iv_item_cover);
             }
+        }
+    }
+
+    class CenterLinearLayoutManager extends LinearLayoutManager {
+        public CenterLinearLayoutManager() {
+            super(G0_Activity.this);
+        }
+
+        @Override
+        public void smoothScrollToPosition(RecyclerView recyclerView, RecyclerView.State state, int position) {
+            LinearSmoothScroller smoothScroller = new LinearSmoothScroller(recyclerView.getContext()) {
+                @Override
+                public int calculateDtToFit(int viewStart, int viewEnd, int boxStart, int boxEnd, int snapPreference) {
+                    int viewCenter = viewStart + (viewEnd - viewStart) / 2;
+                    int boxCenter = boxStart + (boxEnd - boxStart) / 2;
+                    return boxCenter - viewCenter;
+                }
+            };
+            smoothScroller.setTargetPosition(position);
+            startSmoothScroll(smoothScroller);
         }
     }
 }

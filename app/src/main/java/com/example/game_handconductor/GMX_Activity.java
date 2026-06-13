@@ -65,29 +65,22 @@ import java.util.concurrent.Executors;
 
 public class GMX_Activity extends AppCompatActivity {
 
-    // === 【核心触发函数】：拍摄屏幕画面（音符 + 前置摄像头画面完美叠加） ===
-    // === 【终极完美版】：精确定位子视图叠加，彻底解决黑底覆盖的截屏函数 ===
     public void ShotScreen() {
-        // 1. 自动生成当前的拍摄时间戳与文件名 (严格对齐 2026/6/2 13:15 格式)
         SimpleDateFormat sdf = new SimpleDateFormat("yyyy/M/d HH:mm", Locale.getDefault());
         String currentTimeStr = sdf.format(new Date());
 
         String fileTimestamp = new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(new Date());
         String imageFileName = "snap_" + fileTimestamp + ".jpg";
 
-        // 2. 寻找布局中的 CameraX 预览组件 PreviewView
         PreviewView previewView = findViewById(R.id.viewFinder);
         if (previewView == null) return;
 
-        // 3. 提取当前纯净的前置摄像头预览画面
         Bitmap cameraBitmap = previewView.getBitmap();
         if (cameraBitmap == null) {
-            // 容错提示：如果为 null 说明相机未就绪或未开启兼容的 TextureView 模式
             runOnUiThread(() -> Toast.makeText(GMX_Activity.this, "截图失败：相机未就绪，请确保 PreviewView 开启了 compatible 模式", Toast.LENGTH_LONG).show());
             return;
         }
 
-        // 4. 以相机真实人脸画面作为底层画板，创建一个高保真可写位图
         Bitmap finalBitmap = cameraBitmap.copy(Bitmap.Config.ARGB_8888, true);
         Canvas canvas = new Canvas(finalBitmap);
 
@@ -96,10 +89,8 @@ public class GMX_Activity extends AppCompatActivity {
             for (int i = 0; i < rootLayout.getChildCount(); i++) {
                 View child = rootLayout.getChildAt(i);
 
-                // 极其关键：排除掉相机预览组件本身，只把上层的音符组件、UI 文本绘制到画布上
                 if (child != previewView && child.getVisibility() == View.VISIBLE) {
                     canvas.save();
-                    // 依据各个子组件在物理屏幕上的相对坐标进行精准平移对齐绘制
                     canvas.translate(child.getLeft(), child.getTop());
                     child.draw(canvas);
                     canvas.restore();
@@ -107,22 +98,17 @@ public class GMX_Activity extends AppCompatActivity {
             }
         }
 
-        // 5. 开启异步子线程，将带有前置人脸加音符完美融合的照片写入本地私由沙盒
         final Bitmap bitmapToSave = finalBitmap;
         new Thread(() -> {
             try {
-                // A. 将高清合成后的照片存入沙盒物理储存
                 File imageFile = new File(getFilesDir(), imageFileName);
                 FileOutputStream fos = new FileOutputStream(imageFile);
-                // 采用 90% 质量压缩 JPEG
                 bitmapToSave.compress(Bitmap.CompressFormat.JPEG, 90, fos);
                 fos.flush();
                 fos.close();
 
-                // 极其重要：音游高频触发截图极易发生内存溢出，必须手动调用 recycle 释放物理内存
                 bitmapToSave.recycle();
 
-                // B. 追加改写本地数据总账本 CaptureConfig.csv
                 File csvFile = new File(getFilesDir(), "CaptureConfig.csv");
                 boolean isNewFile = !csvFile.exists();
 
@@ -130,10 +116,9 @@ public class GMX_Activity extends AppCompatActivity {
                 PrintWriter writer = new PrintWriter(csvFos);
 
                 if (isNewFile) {
-                    writer.println("FileName,MusicName,CaptureTime"); // 初始化 CSV 标准表头
+                    writer.println("FileName,MusicName,CaptureTime");
                 }
 
-                // 直接读取 GMX 中的全局变量 songName，并过滤可能引发 CSV 错位的逗号
                 String safeSongName = (songName != null) ? songName.replace(",", " ") : "UnknownSong";
                 writer.println(imageFileName + "," + safeSongName + "," + currentTimeStr);
 
@@ -141,8 +126,6 @@ public class GMX_Activity extends AppCompatActivity {
                 writer.close();
                 csvFos.close();
 
-                // C. 切回 UI 主线程通知玩家
-                //runOnUiThread(() -> Toast.makeText(GMX_Activity.this, "游戏精彩瞬间已完美封存！", Toast.LENGTH_SHORT).show());
 
             } catch (Exception e) {
                 e.printStackTrace();
@@ -151,37 +134,26 @@ public class GMX_Activity extends AppCompatActivity {
         }).start();
     }
 
-    /**
-     * 【内部配套工具】：负责将图片和 CSV 数据无缝锁入本地应用内部沙盒存储（子线程运行）
-     */
     private void saveSnapshotData(Bitmap bitmap, String fileName, String timeRecord) {
         try {
-            // A. 保存高保真图片到沙盒内部私有空间 (Context.MODE_PRIVATE)
             File imageFile = new File(getFilesDir(), fileName);
             FileOutputStream fos = new FileOutputStream(imageFile);
-            // 采用 90% 质量压缩 JPEG，在画质与内部存储空间占用之间取得最佳工业级平衡
             bitmap.compress(Bitmap.CompressFormat.JPEG, 90, fos);
             fos.flush();
             fos.close();
 
-            // 释放内存，防止音游后续对局发生严重内存溢出 (OOM)
             bitmap.recycle();
 
-            // B. 建立并改写索引账本 CaptureConfig.csv (实现歌名、时间、图片名的一体化增量绑定)
             File csvFile = new File(getFilesDir(), "CaptureConfig.csv");
             boolean isNewFile = !csvFile.exists();
 
-            // 以追加（append=true）的模式打开本地文件流
             FileOutputStream csvFos = new FileOutputStream(csvFile, true);
             PrintWriter writer = new PrintWriter(csvFos);
 
-            // 如果是初次全新建立，为其自动架设正规 CSV 标题表头
             if (isNewFile) {
                 writer.println("FileName,MusicName,CaptureTime");
             }
 
-            // 【数据闭环】：写入当前截图的数据行。songName 为 GMX 全局变量直接读取。
-            // 替换掉文本里潜在的逗号，防止 CSV 格式发生列解析错位
             String safeSongName = (songName != null) ? songName.replace(",", " ") : "UnknownSong";
             writer.println(fileName + "," + safeSongName + "," + timeRecord);
 
@@ -189,10 +161,6 @@ public class GMX_Activity extends AppCompatActivity {
             writer.close();
             csvFos.close();
 
-            /*// C. 弹窗通知玩家（切回主线程进行 UI 刷新）
-            runOnUiThread(() -> {
-                Toast.makeText(GMX_Activity.this, "对局截图已成功保存至沙盒!", Toast.LENGTH_SHORT).show();
-            });*/
 
         } catch (Exception e) {
             e.printStackTrace();
@@ -204,7 +172,6 @@ public class GMX_Activity extends AppCompatActivity {
     private class ScoreManager {
         int currentCombo = 0, maxCombo = 0, hits = 0,miss=0;
         int fevernote=0;
-        //public int totalNote=0;
         int totalNotes = 0;
 
         void addHit() {
@@ -230,7 +197,6 @@ public class GMX_Activity extends AppCompatActivity {
     private Handler mainHandler = new Handler(Looper.getMainLooper());
     private TextView tvCombo;
 
-    // ================= 游戏 UI 与状态 =================
     private ProgressBar pbSongProgress;
     private ValueAnimator progressAnimator;
     private FrameLayout noteContainer;
@@ -238,31 +204,26 @@ public class GMX_Activity extends AppCompatActivity {
 
     private String SongFaceFile;
     private int songCoverId;
-    //private int currentMaxCombo = 0;
 
-    // ================= 摄像头与识别 =================
     private HandLandmarker handLandmarker;
     private ExecutorService cameraExecutor;
     private PreviewView viewFinder;
     private static final int CAMERA_REQ_CODE = 100;
 
-    // ================= 手势实时交互状态 =================
     public volatile boolean flagPushing = false;
     public volatile boolean flagPointingTop = false;
     public volatile boolean flagPointingBottom = false;
     public volatile boolean flagRaisingLeft = false;
     public volatile boolean flagRaisingRight = false;
 
-    // ================= 谱面时间轴系统 =================
     class NoteEvent {
         long spawnTimeMs;
         Runnable action;
-        public boolean isTriggered = false; // 核心修复：防止动画更新时音符被重复 new 出来
+        public boolean isTriggered = false;
         NoteEvent(long time, Runnable action) { this.spawnTimeMs = time; this.action = action;this.isTriggered = false; }
     }
     private List<NoteEvent> noteTimeline = new ArrayList<>();
 
-    // ================= 手势识别追踪器 =================
     private static class RaiseTrendTracker {
         List<Float> tipHistory = new ArrayList<>();
         boolean isPrepReady = false;
@@ -321,13 +282,12 @@ public class GMX_Activity extends AppCompatActivity {
     private final MovementTracker leftScreenTracker = new MovementTracker();
     private final MovementTracker rightScreenTracker = new MovementTracker();
 
-    // ================= Activity 生命周期 =================
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_gmx);
 
-        tvCombo = findViewById(R.id.tv_max_combo); // 新增绑定
+        tvCombo = findViewById(R.id.tv_max_combo);
         pbSongProgress = findViewById(R.id.pb_song_progress);
         noteContainer = findViewById(R.id.note_container);
         viewFinder = findViewById(R.id.viewFinder);
@@ -482,14 +442,11 @@ public class GMX_Activity extends AppCompatActivity {
         flagRaisingRight = currentRightRaise;
     }
 
-    // === 游戏媒体与核心状态控制变量 ===
     private android.media.MediaPlayer mediaPlayer = null;
     private PurpleNoteView lastPurpleNote = null;
 
     private boolean isGamePaused = false;
 
-    // === 暂停状态一键切换总入口 ===
-// === 暂停状态一键切换总入口 ===
     private void togglePauseGame() {
         if (isGamePaused) {
             resumeGame();
@@ -544,7 +501,6 @@ public class GMX_Activity extends AppCompatActivity {
             }
         }
     }
-    // === 【新增逻辑点1】：多媒体播放控制引擎全量实现 ===
     private void initMediaPlayer(String songFileName) {
         if (mediaPlayer != null) {
             mediaPlayer.release();
@@ -552,7 +508,6 @@ public class GMX_Activity extends AppCompatActivity {
         }
         try {
             mediaPlayer = new android.media.MediaPlayer();
-            // 【修改点3】：将音频源路径强制指向 assets/Music/ 文件夹
             android.content.res.AssetFileDescriptor afd = getAssets().openFd("Music/" + songFileName);
             mediaPlayer.setDataSource(afd.getFileDescriptor(), afd.getStartOffset(), afd.getLength());
             afd.close();
@@ -560,13 +515,10 @@ public class GMX_Activity extends AppCompatActivity {
 
             SharedPreferences sharedPreferences = getSharedPreferences("GameSettings", MODE_PRIVATE);
 
-            // 3. 读取全局音量。第二个参数 100 是兜底默认值（即第一次进游戏未设置音量时满音量播放）
             int globalVolume = sharedPreferences.getInt("global_volume", 100);
 
-            // 4. 音量高能转换：将 0~100 的整数值缩放到 0.0f~1.0f 浮点数区间
             float volumeRatio = globalVolume / 100f;
 
-            // 5. 将计算好的对数/线性比例音量注入当前播放器（分别控制左声道和右声道）
             if (mediaPlayer != null) {
                 mediaPlayer.setVolume(volumeRatio, volumeRatio);
             }
@@ -580,13 +532,10 @@ public class GMX_Activity extends AppCompatActivity {
     private void adjustVolumeOnTheFly() {
         SharedPreferences sharedPreferences = getSharedPreferences("GameSettings", MODE_PRIVATE);
 
-        // 3. 读取全局音量。第二个参数 100 是兜底默认值（即第一次进游戏未设置音量时满音量播放）
         int globalVolume = sharedPreferences.getInt("global_volume", 100);
 
-        // 4. 音量高能转换：将 0~100 的整数值缩放到 0.0f~1.0f 浮点数区间
         float volumeRatio = globalVolume / 100f;
 
-        // 5. 将计算好的对数/线性比例音量注入当前播放器（分别控制左声道和右声道）
         if (mediaPlayer != null) {
             mediaPlayer.setVolume(volumeRatio, volumeRatio);
         }
@@ -596,27 +545,22 @@ public class GMX_Activity extends AppCompatActivity {
             mediaPlayer.start();
         }
     }
-    // ================= 游戏进度与音符生成 =================
     private void initNoteTimeline() {
         noteTimeline.clear();
 
-        // 动态接收从选关界面传过来的 CSV 谱面文件名（例如 "song1.csv"），若为空则兜底默认读取 "song1.csv"
         String csvName = getIntent().getStringExtra("CSV_NAME");
         if (csvName == null || csvName.isEmpty()) {
             csvName = "song1.csv";
         }
 
-        // 加载 MusicCSV 目录下的配置文件
         ChartData chart = ChartLoader.loadChart(this, csvName);
 
-        // 【修改点2】：文件名双向绝对对齐检验逻辑
         String cleanCsvName = csvName.replace(".csv", "").trim();
         String cleanSongName = chart.songFileName.replace(".mp3", "").trim();
         if (!cleanCsvName.equalsIgnoreCase(cleanSongName)) {
             android.util.Log.e("AssetValidationError", "【警告】谱面资产配置产生错位！当前加载的谱面为: " + csvName + "，但其内部声明的音频文件却为: " + chart.songFileName);
         }
 
-        // 装载对应名称的音乐文件
         initMediaPlayer(chart.songFileName);
 
         scoreManager.totalNotes = chart.totalNotes;
@@ -633,20 +577,20 @@ public class GMX_Activity extends AppCompatActivity {
             long life = Long.parseLong(row[3]);
 
             switch (type) {
-                case 0: // 蓝键
+                case 0:
                     noteTimeline.add(new NoteEvent(start, () -> noteContainer.addView(new BlueNoteView(this))));
                     break;
-                case 1: // 上紫键位
+                case 1:
                     final PurpleNoteView topPurple = new PurpleNoteView(this, true, null, life);
                     lastPurpleNote = topPurple;
                     noteTimeline.add(new NoteEvent(start, () -> noteContainer.addView(topPurple)));
                     break;
-                case 2: // 下紫键位
+                case 2:
                     final PurpleNoteView bottomPurple = new PurpleNoteView(this, false, null, life);
                     lastPurpleNote = bottomPurple;
                     noteTimeline.add(new NoteEvent(start, () -> noteContainer.addView(bottomPurple)));
                     break;
-                case 3: // 紫连接键
+                case 3:
                     final PurpleNoteView targetNote = lastPurpleNote;
 
                     boolean calculatedDirection = true;
@@ -662,16 +606,16 @@ public class GMX_Activity extends AppCompatActivity {
                     }
                     noteTimeline.add(new NoteEvent(start, () -> noteContainer.addView(link)));
                     break;
-                case 4: // 左侧橙键
+                case 4:
                     noteTimeline.add(new NoteEvent(start - preTouchDuration, () -> noteContainer.addView(new OrangeNoteView(this, true, life, screenWidth))));
                     break;
-                case 5: // 右侧橙键
+                case 5:
                     noteTimeline.add(new NoteEvent(start - preTouchDuration, () -> noteContainer.addView(new OrangeNoteView(this, false, life, screenWidth))));
                     break;
-                case 6: // 左侧黄键
+                case 6:
                     noteTimeline.add(new NoteEvent(start - life, () -> noteContainer.addView(new YellowNoteView(this, true, life))));
                     break;
-                case 7: // 右侧黄键
+                case 7:
                     noteTimeline.add(new NoteEvent(start - life, () -> noteContainer.addView(new YellowNoteView(this, false, life))));
                     break;
             }
@@ -679,7 +623,6 @@ public class GMX_Activity extends AppCompatActivity {
 
         setupProgressAnimator(chart.songLengthSeconds * 1000);
 
-        // 整个关卡时间轴及音频装载就绪，开启音乐播放
         startMusic();
     }
 
@@ -737,11 +680,7 @@ public class GMX_Activity extends AppCompatActivity {
     protected void onResume() {
         super.onResume();
         if (isGamePaused) {
-            // 如果你想让玩家一回来就自动继续，直接调用：
             resumeGame();
-
-            // 【提示】：如果你希望切回来时保持暂停，让玩家手动点“继续”才开始，
-            // 那么这里什么都不用写，只需要确保场景一中的“继续”按钮绑定了 resumeGame() 即可。
         }
     }
 
@@ -767,7 +706,6 @@ public class GMX_Activity extends AppCompatActivity {
         }
     }
 
-    // ================= 特效类 =================
     class HitEffectView extends View {
         private Paint paint;
         private float cx, cy, currentSize = 50f;
@@ -799,8 +737,6 @@ public class GMX_Activity extends AppCompatActivity {
         }
     }
 
-    // ================= 自定义交互音符视图类 =================
-// ==================== 1. 蓝色音符 (生命周期规范化) ====================
     class BlueNoteView extends View {
         private Paint innerPaint, strokePaint;
         private float sweepAngle = 0;
@@ -812,7 +748,6 @@ public class GMX_Activity extends AppCompatActivity {
             innerPaint = new Paint(); innerPaint.setColor(Color.parseColor("#00BFFF")); innerPaint.setAntiAlias(true);
             strokePaint = new Paint(); strokePaint.setColor(Color.parseColor("#00008B")); strokePaint.setStyle(Paint.Style.STROKE); strokePaint.setStrokeWidth(30); strokePaint.setAntiAlias(true);
 
-            // 1. 构造函数中只负责高能创建，杜绝 null 崩溃
             anim = ValueAnimator.ofFloat(0, 360);
             anim.setDuration(1500);
             anim.addUpdateListener(a -> {
@@ -837,7 +772,6 @@ public class GMX_Activity extends AppCompatActivity {
             });
         }
 
-        // 2. 只有当真正被 addView 挂载到屏幕上时，时间轴才允许开始走字
         @Override
         protected void onAttachedToWindow() {
             super.onAttachedToWindow();
@@ -865,7 +799,6 @@ public class GMX_Activity extends AppCompatActivity {
         }
     }
 
-    // ==================== 2. 紫色音符 (彻底修复提前实例化偷跑的致命 BUG) ====================
     class PurpleNoteView extends View {
         private Paint innerPaint, strokePaint;
         private float sweepAngle = 0;
@@ -891,7 +824,6 @@ public class GMX_Activity extends AppCompatActivity {
             innerPaint = new Paint(); innerPaint.setColor(Color.parseColor("#9932CC")); innerPaint.setAntiAlias(true);
             strokePaint = new Paint(); strokePaint.setColor(Color.parseColor("#4B0082")); strokePaint.setStyle(Paint.Style.STROKE); strokePaint.setStrokeWidth(25); strokePaint.setAntiAlias(true);
 
-            // 构造函数内仅实例化配置，严禁在此处执行 start() 偷跑
             anim = ValueAnimator.ofFloat(0, 1f);
             anim.setDuration(t);
             anim.addUpdateListener(a -> {
@@ -947,7 +879,6 @@ public class GMX_Activity extends AppCompatActivity {
             });
         }
 
-        // 当时间轴派发该紫键 addView 时，在此处准时拦截并启动动画
         @Override
         protected void onAttachedToWindow() {
             super.onAttachedToWindow();
@@ -997,7 +928,6 @@ public class GMX_Activity extends AppCompatActivity {
         }
     }
 
-    // ==================== 3. 紫色连接线 (对齐挂载生命周期) ====================
     class PurpleLinkView extends View {
         private Paint paint;
         private boolean isTopToBottom;
@@ -1015,7 +945,6 @@ public class GMX_Activity extends AppCompatActivity {
         @Override
         protected void onAttachedToWindow() {
             super.onAttachedToWindow();
-            // 如果在前置装载时因为前导错位触发了 Miss 标记，刚挂载上窗口就必须立刻自毁移除
             if (isMissed) {
                 post(() -> {
                     if (getParent() != null) {
@@ -1093,7 +1022,6 @@ public class GMX_Activity extends AppCompatActivity {
         }
     }
 
-    // ==================== 4. 橙色长条音符 (对齐挂载生命周期) ====================
     class OrangeNoteView extends View {
         private Paint paint;
         private float currentX = -1;
@@ -1245,7 +1173,6 @@ public class GMX_Activity extends AppCompatActivity {
         }
     }
 
-    // ==================== 5. 黄色短音符 (对齐挂载生命周期) ====================
     class YellowNoteView extends View {
         private Paint paint;
         private float currentY = -1;
