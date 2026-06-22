@@ -59,7 +59,6 @@ public class G0_Activity extends AppCompatActivity {
 
     private ImageView ivBackground;
 
-    // 【重构核心点一】：提升为全局变量，用于在 onResume 生命周期中执行位置强行校准与对齐
     private RecyclerView rvSongList;
     private LinearLayoutManager layoutManager;
     private LinearSnapHelper snapHelper;
@@ -75,7 +74,6 @@ public class G0_Activity extends AppCompatActivity {
         tvMaxCombo = findViewById(R.id.tv_max_combo);
         tvMainRank = findViewById(R.id.tv_main_rank);
 
-        // 【核心修复点二】：补齐原代码缺失的背景绑定，彻底消灭点击图片引发的 NullPointerException 闪退
         ivBackground = findViewById(R.id.iv_background);
 
         Button btnBack = findViewById(R.id.btn_back_title);
@@ -95,7 +93,6 @@ public class G0_Activity extends AppCompatActivity {
         snapHelper.attachToRecyclerView(rvSongList);
         rvSongList.setAdapter(adapter);
 
-        // ================= 旋转盘滚动与自动更新监听 =================
         rvSongList.addOnScrollListener(new RecyclerView.OnScrollListener() {
             @Override
             public void onScrolled(@NonNull RecyclerView recyclerView, int dx, int dy) {
@@ -137,7 +134,6 @@ public class G0_Activity extends AppCompatActivity {
         });
     }
 
-    // 【生命周期核心同步】：每次重新回到选歌页面，不仅重载数据，还强制轮盘物理对齐正确档位
     @Override
     protected void onResume() {
         super.onResume();
@@ -146,7 +142,7 @@ public class G0_Activity extends AppCompatActivity {
         adapter.notifyDataSetChanged();
 
         if (!songList.isEmpty()) {
-            int targetPosition = 0; // 记录需要对齐的档位索引
+            int targetPosition = 0;
             boolean foundSelectedSong = false;
 
             if (currentSelectedSong != null) {
@@ -164,7 +160,7 @@ public class G0_Activity extends AppCompatActivity {
                     Song s = songList.get(i);
                     if (s.name.equalsIgnoreCase(currentSelectedSong.name)) {
                         updateLeftPanel(s, i);
-                        targetPosition = i; // 锁死目标歌曲索引位置
+                        targetPosition = i;
                         foundSelectedSong = true;
                         break;
                     }
@@ -176,7 +172,6 @@ public class G0_Activity extends AppCompatActivity {
                 updateLeftPanel(songList.get(0), 0);
             }
 
-            // 【核心修复点三】：利用主线程空闲队列，强行命令右侧轮盘物理滚动到当前选中的歌曲位置，斩断错位现象
             final int finalPos = targetPosition;
             if (rvSongList != null) {
                 centerSongAtPosition(finalPos, false);
@@ -344,11 +339,9 @@ public class G0_Activity extends AppCompatActivity {
 
     private void updateBlurBackground(String fileName) {
         try {
-            // 【核心修复点四】：将模糊图的 Assets 统一归入绝对正确的 "Image/MusicPageFace/" 路径下
             InputStream is = getAssets().open("Image/MusicPageFace/" + fileName);
             Bitmap bitmap = BitmapFactory.decodeStream(is);
 
-            // 注入防御性空安全校验，双重锁死绝不抛出异常，绝不闪退
             if (ivBackground != null) {
                 ivBackground.setImageBitmap(bitmap);
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {

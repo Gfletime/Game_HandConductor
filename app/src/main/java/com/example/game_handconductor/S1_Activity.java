@@ -9,11 +9,11 @@ import android.view.View;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.SeekBar;
-import android.widget.Toast; // 增量导入：用于清理完毕后的屏幕弹窗反馈
+import android.widget.Toast;
 
 import androidx.appcompat.app.AppCompatActivity;
 
-import java.io.File; // 增量导入：用于定位内部存储沙盒空间的文件对象
+import java.io.File;
 
 public class S1_Activity extends AppCompatActivity {
 

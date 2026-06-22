@@ -6,17 +6,6 @@ import java.io.InputStreamReader;
 import java.util.ArrayList;
 import java.util.List;
 
-// 这个类负责解析 assets 下的 .csv 文件
-// === 【新增数据结构】：谱面数据实体类 ===
-
-
-// === 【重构工具类】：完全适配新版 CSV 格式 ===
-// === 谱面数据实体类 (完整不省略) ===
-
-// === 谱面解析加载器 (完整不省略) ===
-// === 谱面数据实体类 (完整不省略) ===
-
-// === 谱面解析加载器 (完整不省略) ===
 public class ChartLoader {
     public static ChartData loadChart(android.content.Context context, String fileName) {
         ChartData chartData = new ChartData();

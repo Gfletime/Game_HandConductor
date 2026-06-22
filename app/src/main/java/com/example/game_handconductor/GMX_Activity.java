@@ -13,21 +13,21 @@ import android.graphics.Color;
 import android.graphics.Paint;
 import android.graphics.Path;
 import android.graphics.RectF;
-import android.os.Build; // 补全：系统版本判定
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
 import android.util.Size;
-import android.view.PixelCopy; // 补全：高保真硬件图层复制API
+import android.view.PixelCopy;
 import android.view.View;
 import android.view.ViewGroup;
-import android.view.Window; // 补全：窗口对象句柄
+import android.view.Window;
 import android.widget.Button;
 import android.widget.FrameLayout;
 import android.widget.ProgressBar;
 import android.widget.TextView;
-import android.widget.Toast; // 补全：轻量级屏幕弹窗通知
+import android.widget.Toast;
 
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
@@ -50,16 +50,16 @@ import com.google.mediapipe.tasks.vision.handlandmarker.HandLandmarker;
 import com.google.mediapipe.tasks.vision.handlandmarker.HandLandmarkerResult;
 
 import java.io.BufferedReader;
-import java.io.File; // 补全：文件沙盒定位
-import java.io.FileOutputStream; // 补全：图片文件输出字节流
+import java.io.File;
+import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.io.InputStreamReader;
-import java.io.PrintWriter; // 补全：CSV行文本追加打印器
-import java.text.SimpleDateFormat; // 补全：音游时间格式化工具
+import java.io.PrintWriter;
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
-import java.util.Date; // 补全：捕获当前时间对象
+import java.util.Date;
 import java.util.List;
-import java.util.Locale; // 补全：本地化环境配置
+import java.util.Locale;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 

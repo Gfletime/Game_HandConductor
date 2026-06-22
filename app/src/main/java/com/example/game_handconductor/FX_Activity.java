@@ -62,20 +62,15 @@ public class FX_Activity extends AppCompatActivity {
     private String songName;
     private String songCoverFile;
 
-    // 手势识别控制核心状态机组件
+
     private ExecutorService cameraExecutor;
     private HandLandmarker handLandmarker;
     private ProcessCameraProvider cameraProvider;
 
-    // 右手计时数据器变量
+
     private volatile int rightHandGesture = GESTURE_NONE;
     private volatile long rightHandGestureStartTime = 0;
 
-    // ====================================================================
-    // 【核心解耦组件】：
-    // 用来防御 Android 任务栈高频并发穿透的全局原子级跳转安全门锁。
-    // 当其为 true 时，冷酷拦截一切后续相机流帧的跳转请求，死锁单次安全闭环。
-    // ====================================================================
     private volatile boolean isNavigating = false;
 
     @Override
@@ -83,7 +78,6 @@ public class FX_Activity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_fx);
 
-        // 1. 获取从 GMX 传过来的结算数据
         Intent intent = getIntent();
         songName = intent.getStringExtra("SONG_NAME");
 
@@ -100,10 +94,9 @@ public class FX_Activity extends AppCompatActivity {
         vMainCover = findViewById(R.id.iv_fx_cover);
         ivBackground = findViewById(R.id.iv_backgroundfx);
 
-        // 启动高能资产图像渲染与高斯模糊引擎
+
         updateSongCover(songCoverFile);
 
-        // 兼容性数据提取：完美支持 Integer 与带有 % 符号的 String
         int completion = 0;
         if (intent.hasExtra("COMPLETION")) {
             Object completionExtra = intent.getExtras().get("COMPLETION");
@@ -118,10 +111,10 @@ public class FX_Activity extends AppCompatActivity {
             }
         }
 
-        // 智能执行高分纪录本地安全覆写
+
         saveStatsToLocalCsv(songName, rank, completion, maxCombo);
 
-        // 2. 绑定 UI 组件
+
         TextView tvRank = findViewById(R.id.tv_fx_rank);
         TextView labelCompletion = (TextView) ((LinearLayout) findViewById(R.id.tv_fx_completion).getParent()).getChildAt(0);
         TextView labelHits = (TextView) ((LinearLayout) findViewById(R.id.tv_fx_hits).getParent()).getChildAt(0);
@@ -141,12 +134,10 @@ public class FX_Activity extends AppCompatActivity {
             applyRankColoring(tvRank, rank);
         }
 
-        // ================= 3. 开始执行入场动画 =================
         hideViewsInitially(tvRank, labelCompletion, tvCompletion, labelHits, tvHits,
                 labelCombo, tvCombo, labelMisses, tvMisses, btnToG0, btnReplay);
         long delay = 300;
 
-        // 评级弹性弹出
         tvRank.animate()
                 .scaleX(1f).scaleY(1f).alpha(1f)
                 .setDuration(600)
@@ -155,7 +146,6 @@ public class FX_Activity extends AppCompatActivity {
                 .start();
         delay += 400;
 
-        // 数据行依次跑字滚动渐显
         animateRow(labelCompletion, tvCompletion, completion, delay, true);
         delay += 250;
         animateRow(labelHits, tvHits, hits, delay, false);
@@ -165,16 +155,13 @@ public class FX_Activity extends AppCompatActivity {
         animateRow(labelMisses, tvMisses, misses, delay, false);
         delay += 400;
 
-        // 底部按钮渐显
         fadeInView(btnToG0, delay);
         fadeInView(btnReplay, delay + 100);
 
-        // =========================================================
 
-        // 4. 处理跳转按钮逻辑
         btnToG0.setOnClickListener(v -> {
             if (!isNavigating) {
-                isNavigating = true; // 点击时同步锁死安全防护门
+                isNavigating = true;
                 navigateToG0Selection();
             }
         });
@@ -186,7 +173,7 @@ public class FX_Activity extends AppCompatActivity {
             }
         });
 
-        // 运行时动态相机隐私验证
+
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
             ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.CAMERA}, 101);
         }
@@ -195,7 +182,7 @@ public class FX_Activity extends AppCompatActivity {
     @Override
     protected void onResume() {
         super.onResume();
-        isNavigating = false; // 重新进入页面时释放门锁
+        isNavigating = false;
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
             initCameraAndGestureRecognition();
         }
@@ -273,8 +260,6 @@ public class FX_Activity extends AppCompatActivity {
     }
 
     private synchronized void handleGestureResult(HandLandmarkerResult result, MPImage image) {
-        // 【核心加固机制】：如果安全门锁已经闭合，说明已经成功向系统派发了跳转指令。
-        // 直接就地拦截并枪毙后续一切积压帧的计算，杜绝重复 startActivity 引发的任务栈恶性大坍塌。
         if (isNavigating) {
             return;
         }
@@ -308,7 +293,7 @@ public class FX_Activity extends AppCompatActivity {
                     rightHandGestureStartTime = now;
                 } else {
                     if (now - rightHandGestureStartTime >= 3000) {
-                        isNavigating = true; // 极其重要：率先把安全锁死锁！
+                        isNavigating = true;
                         resetRightHandGestureState();
                         navigateToG0Selection();
                     }
@@ -319,7 +304,7 @@ public class FX_Activity extends AppCompatActivity {
                     rightHandGestureStartTime = now;
                 } else {
                     if (now - rightHandGestureStartTime >= 3000) {
-                        isNavigating = true; // 极其重要：率先把安全锁死锁！
+                        isNavigating = true;
                         resetRightHandGestureState();
                         navigateToGmxReplay();
                     }
